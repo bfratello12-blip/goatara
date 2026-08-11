@@ -73,19 +73,55 @@
     reveals.forEach((el) => el.classList.add("in"));
   }
 
-  /* Contact form (demo, no backend) */
-  const form = document.querySelector("#contactForm");
-  if (form) {
+  /* Forms — deliver submissions via email (FormSubmit) */
+  function wireEmailForm(form, successSelector) {
+    if (!form) return;
     form.addEventListener("submit", (e) => {
       e.preventDefault();
-      const success = document.querySelector("#formSuccess");
-      if (success) {
-        success.classList.add("show");
-        success.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
       }
-      form.reset();
+
+      let endpoint = form.getAttribute("action") || "";
+      try {
+        const url = new URL(endpoint, window.location.href);
+        if (url.hostname === "formsubmit.co" && !url.pathname.startsWith("/ajax/")) {
+          url.pathname = "/ajax" + url.pathname;
+        }
+        endpoint = url.toString();
+      } catch (err) {
+        /* leave endpoint as-is if it can't be parsed */
+      }
+
+      const submitBtn = form.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+
+      fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(Object.fromEntries(new FormData(form).entries())),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error("Submission failed");
+          const success = document.querySelector(successSelector);
+          if (success) {
+            success.classList.add("show");
+            success.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+          form.reset();
+        })
+        .catch(() => {
+          // Fall back to a normal form submission if the AJAX request fails.
+          HTMLFormElement.prototype.submit.call(form);
+        })
+        .finally(() => {
+          if (submitBtn) submitBtn.disabled = false;
+        });
     });
   }
+
+  wireEmailForm(document.querySelector("#contactForm"), "#formSuccess");
 
   /* Qualify modal */
   const modal = document.querySelector("#qualifyModal");
@@ -115,26 +151,7 @@
       if (e.key === "Escape" && modal.classList.contains("open")) closeModal();
     });
 
-    const qForm = document.querySelector("#qualifyForm");
-    if (qForm) {
-      qForm.addEventListener("submit", (e) => {
-        // No email endpoint yet — handle as a demo until the action URL is set.
-        const action = qForm.getAttribute("action") || "";
-        if (action.indexOf("REPLACE_WITH_EMAIL_ENDPOINT") !== -1) {
-          e.preventDefault();
-          if (!qForm.checkValidity()) {
-            qForm.reportValidity();
-            return;
-          }
-          const success = document.querySelector("#qualifySuccess");
-          if (success) {
-            success.classList.add("show");
-            success.scrollIntoView({ behavior: "smooth", block: "center" });
-          }
-          qForm.reset();
-        }
-      });
-    }
+    wireEmailForm(document.querySelector("#qualifyForm"), "#qualifySuccess");
   }
 
   /* Footer year */

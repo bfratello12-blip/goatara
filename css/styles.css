@@ -161,6 +161,8 @@ img { max-width: 100%; display: block; }
 
 .btn--lg { padding: 18px 34px; font-size: 1.05rem; }
 .btn--block { width: 100%; }
+.btn--icon { padding: 12px; width: 48px; height: 48px; flex: 0 0 auto; }
+.btn--icon svg { width: 20px; height: 20px; }
 
 .btn-row { display: flex; flex-wrap: wrap; gap: 14px; }
 .btn-row--center { justify-content: center; }
@@ -920,7 +922,7 @@ body.modal-open { overflow: hidden; }
 
 @media (max-width: 760px) {
   body { font-size: 16px; }
-  .nav__links, .nav__cta .btn { display: none; }
+  .nav__links, .nav__cta .btn:not(.nav__call) { display: none; }
   .nav__toggle { display: flex; }
   .nav.open .nav__links {
     display: flex;
