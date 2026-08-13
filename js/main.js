@@ -173,4 +173,24 @@
   /* Footer year */
   const yearEl = document.querySelector("#year");
   if (yearEl) yearEl.textContent = new Date().getFullYear();
+
+  /* Reddit Pixel — custom click-tracking events (click-through signals, not confirmed completions) */
+  document.querySelectorAll('a[href="https://calendar.app.google/5VCHPuEXE8NKb6Ct7"]').forEach((link) => {
+    link.addEventListener("click", () => {
+      if (typeof window.rdt === "function") {
+        const conversionId = generateConversionId();
+        window.rdt("track", "Custom", { customEventName: "BookCallClick", conversionId: conversionId });
+      }
+    });
+  });
+
+  const callBtn = document.querySelector(".nav__call");
+  if (callBtn) {
+    callBtn.addEventListener("click", () => {
+      if (typeof window.rdt === "function") {
+        const conversionId = generateConversionId();
+        window.rdt("track", "Custom", { customEventName: "CallClick", conversionId: conversionId });
+      }
+    });
+  }
 })();
