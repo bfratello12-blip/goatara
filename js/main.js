@@ -2,6 +2,23 @@
 (function () {
   "use strict";
 
+  /* Reddit click ID (rdt_cid) — persist in localStorage so it survives full-page
+     navigation on this multi-page site, for CAPI attribution on later conversions */
+  try {
+    const rdtCid = new URLSearchParams(window.location.search).get("rdt_cid");
+    if (rdtCid) localStorage.setItem("rdt_cid", rdtCid);
+  } catch (err) {
+    /* localStorage unavailable (privacy mode, disabled storage, etc.) */
+  }
+
+  function getStoredClickId() {
+    try {
+      return localStorage.getItem("rdt_cid");
+    } catch (err) {
+      return null;
+    }
+  }
+
   /* Sticky header shadow */
   const header = document.querySelector(".site-header");
   const onScroll = () => {
@@ -85,6 +102,25 @@
     });
   }
 
+  // Fire-and-forget relay to our Vercel CAPI endpoint; never blocks the UI.
+  function sendCapiEvent(eventName, conversionId, extra) {
+    const payload = Object.assign(
+      {
+        event: eventName,
+        conversionId: conversionId,
+        eventSourceUrl: window.location.href,
+        clickId: getStoredClickId(),
+      },
+      extra
+    );
+    fetch("/api/reddit-capi", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => {});
+  }
+
   function wireEmailForm(form, successSelector) {
     if (!form) return;
     form.addEventListener("submit", (e) => {
@@ -108,18 +144,21 @@
       const submitBtn = form.querySelector('button[type="submit"]');
       if (submitBtn) submitBtn.disabled = true;
 
+      const formValues = Object.fromEntries(new FormData(form).entries());
+
       fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(Object.fromEntries(new FormData(form).entries())),
+        body: JSON.stringify(formValues),
       })
         .then((res) => {
           if (!res.ok) throw new Error("Submission failed");
-          // Reuse this same conversionId with the Reddit CAPI event later, for dedup.
+          // Reuse this same conversionId with the Reddit CAPI event, for dedup.
           const conversionId = generateConversionId();
           if (typeof window.rdt === "function") {
             window.rdt("track", "Lead", { conversionId: conversionId });
           }
+          sendCapiEvent("Lead", conversionId, { email: formValues.email, phone: formValues.phone });
           const success = document.querySelector(successSelector);
           if (success) {
             success.classList.add("show");
@@ -174,23 +213,25 @@
   const yearEl = document.querySelector("#year");
   if (yearEl) yearEl.textContent = new Date().getFullYear();
 
-  /* Reddit Pixel — custom click-tracking events (click-through signals, not confirmed completions) */
+  /* Reddit Pixel + CAPI — click-tracking events (click-through signals, not confirmed completions) */
   document.querySelectorAll('a[href="https://calendar.app.google/5VCHPuEXE8NKb6Ct7"]').forEach((link) => {
     link.addEventListener("click", () => {
+      const conversionId = generateConversionId();
       if (typeof window.rdt === "function") {
-        const conversionId = generateConversionId();
         window.rdt("track", "Custom", { customEventName: "BookCallClick", conversionId: conversionId });
       }
+      sendCapiEvent("BookCallClick", conversionId);
     });
   });
 
   const callBtn = document.querySelector(".nav__call");
   if (callBtn) {
     callBtn.addEventListener("click", () => {
+      const conversionId = generateConversionId();
       if (typeof window.rdt === "function") {
-        const conversionId = generateConversionId();
         window.rdt("track", "Custom", { customEventName: "CallClick", conversionId: conversionId });
       }
+      sendCapiEvent("CallClick", conversionId);
     });
   }
 })();
