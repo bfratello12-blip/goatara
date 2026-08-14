@@ -89,6 +89,8 @@ module.exports = async function handler(req, res) {
 
   const redditPayload = {
     data: {
+      // Temporary: routes events as test-only in Reddit's Events Manager when set.
+      test_id: process.env.REDDIT_CAPI_TEST_ID || undefined,
       events: [
         {
           event_at: Date.now(),
