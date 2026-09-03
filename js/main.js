@@ -73,6 +73,15 @@
     reveals.forEach((el) => el.classList.add("in"));
   }
 
+  /* Reddit Pixel — browser-side Lead conversion; must never block a submit or navigation */
+  function trackLead() {
+    try {
+      if (typeof window.rdt === "function") window.rdt("track", "Lead");
+    } catch (err) {
+      /* pixel blocked or unavailable — the user's action still proceeds normally */
+    }
+  }
+
   /* Forms — deliver submissions via email (FormSubmit) */
   function wireEmailForm(form, successSelector) {
     if (!form) return;
@@ -106,6 +115,7 @@
       })
         .then((res) => {
           if (!res.ok) throw new Error("Submission failed");
+          trackLead();
           const success = document.querySelector(successSelector);
           if (success) {
             success.classList.add("show");
@@ -159,4 +169,14 @@
   /* Footer year */
   const yearEl = document.querySelector("#year");
   if (yearEl) yearEl.textContent = new Date().getFullYear();
+
+  /* Reddit Lead — booking, phone and email CTAs; delegated so each click counts exactly once */
+  document.addEventListener("click", (e) => {
+    const link = e.target.closest ? e.target.closest("a[href]") : null;
+    if (!link) return;
+    const href = link.getAttribute("href") || "";
+    if (/^(tel:|mailto:)/i.test(href) || link.hostname === "calendar.app.google") {
+      trackLead();
+    }
+  });
 })();
