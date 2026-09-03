@@ -73,6 +73,30 @@
     reveals.forEach((el) => el.classList.add("in"));
   }
 
+  /* Reddit click ID — persisted first-party so conversions later in the journey stay attributed */
+  const CLICK_ID_KEY = "rdt_cid";
+
+  function getStoredClickId() {
+    try {
+      return localStorage.getItem(CLICK_ID_KEY) || null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  try {
+    const landingClickId = new URLSearchParams(window.location.search).get(CLICK_ID_KEY);
+    if (landingClickId) localStorage.setItem(CLICK_ID_KEY, landingClickId);
+  } catch (err) {
+    /* storage unavailable — Reddit falls back to its own matching signals */
+  }
+
+  // First-party cookie the Reddit Pixel sets itself; never fabricated.
+  function getRedditUuid() {
+    const match = document.cookie.match(/(?:^|;\s*)_rdt_uuid=([^;]*)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
   function generateConversionId() {
     if (window.crypto && typeof window.crypto.randomUUID === "function") {
       return window.crypto.randomUUID();
@@ -96,6 +120,48 @@
       /* pixel blocked or unavailable — the user's action still proceeds normally */
     }
     return id;
+  }
+
+  /* Reddit CAPI — fire-and-forget relay; beacons survive the page unload on outbound clicks. */
+  function sendRedditCapiLead(details) {
+    const payload = {
+      event: "Lead",
+      conversionId: details.conversionId,
+      eventAt: details.eventAt,
+      eventSourceUrl: window.location.href,
+    };
+
+    const clickId = getStoredClickId();
+    if (clickId) payload.clickId = clickId;
+    const uuid = getRedditUuid();
+    if (uuid) payload.uuid = uuid;
+    if (window.screen) {
+      payload.screenWidth = window.screen.width;
+      payload.screenHeight = window.screen.height;
+    }
+    if (details.email) payload.email = details.email;
+    if (details.phone) payload.phone = details.phone;
+
+    const body = JSON.stringify(payload);
+    try {
+      const blob = new Blob([body], { type: "application/json" });
+      if (navigator.sendBeacon && navigator.sendBeacon("/api/reddit-capi", blob)) return;
+      fetch("/api/reddit-capi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body,
+        keepalive: true,
+      }).catch(() => {});
+    } catch (err) {
+      /* tracking is best-effort and must never surface to the user */
+    }
+  }
+
+  /* One conversion ID per lead action, shared by the Pixel and CAPI so Reddit can dedupe. */
+  function recordLead(matchKeys) {
+    const conversionId = trackLead();
+    sendRedditCapiLead(Object.assign({ conversionId: conversionId, eventAt: Date.now() }, matchKeys));
+    return conversionId;
   }
 
   /* Forms — deliver submissions via email (FormSubmit) */
@@ -131,7 +197,7 @@
       })
         .then((res) => {
           if (!res.ok) throw new Error("Submission failed");
-          trackLead();
+          recordLead({ email: formValues.email, phone: formValues.phone });
           const success = document.querySelector(successSelector);
           if (success) {
             success.classList.add("show");
@@ -192,7 +258,7 @@
     if (!link) return;
     const href = link.getAttribute("href") || "";
     if (/^(tel:|mailto:)/i.test(href) || link.hostname === "calendar.app.google") {
-      trackLead();
+      recordLead();
     }
   });
 })();
