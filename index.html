@@ -401,7 +401,7 @@
 
         <div class="field">
           <label for="q_stage">Where are you at right now?</label>
-          <select id="q_stage" name="current_stage" required>
+          <select id="q_stage" name="current_stage">
             <option value="">Select one</option>
             <option>I have products but I'm not selling online yet</option>
             <option>I'm getting ready to launch my first store</option>
@@ -417,23 +417,23 @@
 
         <div class="field">
           <label for="q_url">Link to your store, listings or products <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-          <input type="url" id="q_url" name="store_url" placeholder="https://" />
+          <input type="text" id="q_url" name="store_url" placeholder="https://" />
         </div>
 
         <div class="field-row">
           <div class="field">
             <label for="q_category">What do you sell?</label>
-            <input type="text" id="q_category" name="product_category" placeholder="e.g. Home &amp; kitchen" required />
+            <input type="text" id="q_category" name="product_category" placeholder="e.g. Home &amp; kitchen" />
           </div>
           <div class="field">
             <label for="q_skus">Roughly how many products?</label>
-            <input type="number" id="q_skus" name="sku_count" min="1" placeholder="e.g. 12" required />
+            <input type="number" id="q_skus" name="sku_count" min="1" placeholder="e.g. 12" />
           </div>
         </div>
 
         <div class="field">
           <label for="q_revenue">Current monthly revenue across all channels</label>
-          <select id="q_revenue" name="revenue_range" required>
+          <select id="q_revenue" name="revenue_range">
             <option value="">Select a range</option>
             <option>Not selling yet</option>
             <option>Under $5,000</option>
@@ -448,7 +448,7 @@
         <div class="field-row">
           <div class="field">
             <label for="q_fulfillment">How would orders get shipped?</label>
-            <select id="q_fulfillment" name="fulfillment_method" required>
+            <select id="q_fulfillment" name="fulfillment_method">
               <option value="">Select one</option>
               <option>I ship them myself</option>
               <option>3PL / warehouse</option>
@@ -460,7 +460,7 @@
           </div>
           <div class="field">
             <label for="q_timeline">When would you want to start?</label>
-            <select id="q_timeline" name="launch_timeline" required>
+            <select id="q_timeline" name="launch_timeline">
               <option value="">Select one</option>
               <option>As soon as possible</option>
               <option>Within 1 month</option>
@@ -476,7 +476,7 @@
         <div class="field-row">
           <div class="field">
             <label for="q_name">Full name</label>
-            <input type="text" id="q_name" name="name" autocomplete="name" required />
+            <input type="text" id="q_name" name="name" autocomplete="name" />
           </div>
           <div class="field">
             <label for="q_company">Business name <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
@@ -487,11 +487,11 @@
         <div class="field-row">
           <div class="field">
             <label for="q_email">Email</label>
-            <input type="email" id="q_email" name="email" autocomplete="email" required />
+            <input type="email" id="q_email" name="email" autocomplete="email" />
           </div>
           <div class="field">
             <label for="q_phone">Phone</label>
-            <input type="tel" id="q_phone" name="phone" autocomplete="tel" required />
+            <input type="tel" id="q_phone" name="phone" autocomplete="tel" />
           </div>
         </div>
 
