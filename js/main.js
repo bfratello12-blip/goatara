@@ -73,13 +73,29 @@
     reveals.forEach((el) => el.classList.add("in"));
   }
 
-  /* Reddit Pixel — browser-side Lead conversion; must never block a submit or navigation */
-  function trackLead() {
+  function generateConversionId() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID();
+    }
+    // randomUUID needs a secure context; time + randomness keeps IDs unique elsewhere.
+    return (
+      Date.now().toString(36) +
+      "-" +
+      Math.random().toString(36).slice(2, 10) +
+      Math.random().toString(36).slice(2, 10)
+    );
+  }
+
+  /* Reddit Pixel — browser-side Lead conversion; must never block a submit or navigation.
+     Returns the conversion ID so the same value can be reused for CAPI deduplication later. */
+  function trackLead(conversionId) {
+    const id = conversionId || generateConversionId();
     try {
-      if (typeof window.rdt === "function") window.rdt("track", "Lead");
+      if (typeof window.rdt === "function") window.rdt("track", "Lead", { conversionId: id });
     } catch (err) {
       /* pixel blocked or unavailable — the user's action still proceeds normally */
     }
+    return id;
   }
 
   /* Forms — deliver submissions via email (FormSubmit) */
