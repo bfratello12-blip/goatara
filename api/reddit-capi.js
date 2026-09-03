@@ -62,6 +62,11 @@ function parseBody(req) {
   return {};
 }
 
+function toDimension(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 && n <= 20000 ? Math.round(n) : undefined;
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -87,6 +92,10 @@ module.exports = async function handler(req, res) {
     ip_address: getClientIp(req),
     user_agent: isValidString(req.headers["user-agent"], MAX_STRING_LENGTH) ? req.headers["user-agent"] : undefined,
   };
+
+  const width = toDimension(body.screenWidth);
+  const height = toDimension(body.screenHeight);
+  if (width && height) user.screen_dimensions = { width, height };
 
   if (isValidString(body.email, 254)) user.email = normalizeEmail(body.email);
   if (isValidString(body.phone, 32)) user.phone_number = normalizePhone(body.phone);

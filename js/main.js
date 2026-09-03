@@ -135,6 +135,13 @@
     if (clickId) payload.clickId = clickId;
     const uuid = getRedditUuid();
     if (uuid) payload.uuid = uuid;
+
+    const screen = window.screen;
+    if (screen && Number.isFinite(screen.width) && Number.isFinite(screen.height) && screen.width > 0 && screen.height > 0) {
+      payload.screenWidth = screen.width;
+      payload.screenHeight = screen.height;
+    }
+
     if (details.email) payload.email = details.email;
     if (details.phone) payload.phone = details.phone;
 
