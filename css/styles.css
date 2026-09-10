@@ -770,6 +770,7 @@ img { max-width: 100%; display: block; }
 }
 .field textarea { resize: vertical; min-height: 120px; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.field__optional { font-weight: 400; color: var(--text-muted); }
 .form-note { font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; }
 .form-success {
   display: none;
@@ -782,6 +783,8 @@ img { max-width: 100%; display: block; }
   font-weight: 500;
 }
 .form-success.show { display: block; }
+.form-success p { color: inherit; margin: 0 0 6px; }
+.form-success .btn { margin-top: 12px; }
 
 /* ---------- Footer ---------- */
 .site-footer {

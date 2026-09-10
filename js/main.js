@@ -168,7 +168,7 @@
   }
 
   /* Forms — deliver submissions via email (FormSubmit) */
-  function wireEmailForm(form, successSelector) {
+  function wireEmailForm(form, successSelector, onSuccess) {
     if (!form) return;
     form.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -207,6 +207,7 @@
             success.scrollIntoView({ behavior: "smooth", block: "center" });
           }
           form.reset();
+          if (onSuccess) onSuccess();
         })
         .catch(() => {
           // Fall back to a normal form submission if the AJAX request fails.
@@ -220,36 +221,180 @@
 
   wireEmailForm(document.querySelector("#contactForm"), "#formSuccess");
 
-  /* Qualify modal */
-  const modal = document.querySelector("#qualifyModal");
-  if (modal) {
-    let lastFocused = null;
-    const openBtns = document.querySelectorAll("[data-open-qualify]");
-    const closeEls = modal.querySelectorAll("[data-close-qualify]");
+  /* Booking gate — the scheduler is only reachable after the qualify form is submitted, so no
+     call lands on the calendar without business details attached. The markup lives here rather
+     than in each page so the five static pages stay in sync. */
+  const BOOKING_URL = "https://calendar.app.google/x9btkbbEKBuM6irs5";
+  const BOOKING_HOST = "calendar.app.google";
 
-    const openModal = () => {
-      lastFocused = document.activeElement;
-      modal.classList.add("open");
-      modal.setAttribute("aria-hidden", "false");
-      document.body.classList.add("modal-open");
-      const firstField = modal.querySelector("input, select, textarea");
-      if (firstField) firstField.focus();
-    };
-    const closeModal = () => {
-      modal.classList.remove("open");
-      modal.setAttribute("aria-hidden", "true");
-      document.body.classList.remove("modal-open");
-      if (lastFocused) lastFocused.focus();
-    };
+  function bookingModalMarkup() {
+    return `<div class="modal" id="qualifyModal" aria-hidden="true">
+    <div class="modal__overlay" data-close-qualify></div>
+    <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="qualifyTitle">
+      <button type="button" class="modal__close" aria-label="Close" data-close-qualify>
+        <svg viewBox="0 0 24 24" fill="none" width="20" height="20"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+      <div class="modal__head">
+        <span class="eyebrow">Step 1 of 2</span>
+        <h2 id="qualifyTitle">Tell us about your business</h2>
+        <p>We come to every call already knowing what you sell, so we ask for the details first. Fill this in and the booking calendar opens on the next step.</p>
+      </div>
 
-    openBtns.forEach((b) => b.addEventListener("click", openModal));
-    closeEls.forEach((c) => c.addEventListener("click", closeModal));
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && modal.classList.contains("open")) closeModal();
-    });
+      <div class="form-success" id="qualifySuccess">
+        <p><b>Got it &mdash; your details are on their way to us.</b></p>
+        <p>Now pick a time that suits you and we'll come to the call prepared.</p>
+        <a class="btn btn--primary btn--block btn--lg" href="${BOOKING_URL}" target="_blank" rel="noopener" data-booking-ready>Choose Your Time</a>
+      </div>
 
-    wireEmailForm(document.querySelector("#qualifyForm"), "#qualifySuccess");
+      <form class="qualify-form" id="qualifyForm" action="https://formsubmit.co/contact@goatara.com" method="POST" novalidate>
+        <input type="hidden" name="_subject" value="New partnership application — Goatara" />
+        <input type="hidden" name="_template" value="table" />
+        <input type="hidden" name="_cc" value="bfratello@goatara.com,hmdodds@goatara.com,emdodds@goatara.com" />
+        <input type="text" name="_honey" style="display:none" tabindex="-1" autocomplete="off" />
+
+        <div class="field">
+          <label for="q_stage">Where are you at right now?</label>
+          <select id="q_stage" name="current_stage" required>
+            <option value="">Select one</option>
+            <option>I have products but I'm not selling online yet</option>
+            <option>I'm getting ready to launch my first store</option>
+            <option>I have a Shopify store, not launched yet</option>
+            <option>I have a Shopify store, live but barely selling</option>
+            <option>I have a Shopify store that's doing well</option>
+            <option>I sell on Amazon or another marketplace</option>
+            <option>I sell through retail, wholesale or in person</option>
+            <option>I sell through social media or direct messages</option>
+            <option>I have a website, but it's not Shopify</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="q_url">Link to your store, listings or products <span class="field__optional">(optional)</span></label>
+          <input type="text" id="q_url" name="store_url" placeholder="https://" />
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="q_category">What do you sell?</label>
+            <input type="text" id="q_category" name="product_category" placeholder="e.g. Home &amp; kitchen" required />
+          </div>
+          <div class="field">
+            <label for="q_skus">Roughly how many products? <span class="field__optional">(optional)</span></label>
+            <input type="number" id="q_skus" name="sku_count" min="1" placeholder="e.g. 12" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="q_revenue">Current monthly revenue across all channels</label>
+          <select id="q_revenue" name="revenue_range" required>
+            <option value="">Select a range</option>
+            <option>Not selling yet</option>
+            <option>Under $5,000</option>
+            <option>$5,000 – $25,000</option>
+            <option>$25,000 – $50,000</option>
+            <option>$50,000 – $100,000</option>
+            <option>$100,000 – $250,000</option>
+            <option>$250,000+</option>
+          </select>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="q_fulfillment">How would orders get shipped?</label>
+            <select id="q_fulfillment" name="fulfillment_method" required>
+              <option value="">Select one</option>
+              <option>I ship them myself</option>
+              <option>3PL / warehouse</option>
+              <option>My supplier or manufacturer ships them</option>
+              <option>Fulfilled by Amazon (FBA)</option>
+              <option>Print on demand / dropshipping</option>
+              <option>Not sure yet</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="q_timeline">When would you want to start?</label>
+            <select id="q_timeline" name="launch_timeline" required>
+              <option value="">Select one</option>
+              <option>As soon as possible</option>
+              <option>Within 1 month</option>
+              <option>1–3 months</option>
+              <option>3+ months</option>
+              <option>Just exploring</option>
+            </select>
+          </div>
+        </div>
+
+        <hr class="modal__divider" />
+
+        <div class="field-row">
+          <div class="field">
+            <label for="q_name">Full name</label>
+            <input type="text" id="q_name" name="name" autocomplete="name" required />
+          </div>
+          <div class="field">
+            <label for="q_company">Business name <span class="field__optional">(optional)</span></label>
+            <input type="text" id="q_company" name="company" autocomplete="organization" />
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="q_email">Email</label>
+            <input type="email" id="q_email" name="email" autocomplete="email" required />
+          </div>
+          <div class="field">
+            <label for="q_phone">Phone</label>
+            <input type="tel" id="q_phone" name="phone" autocomplete="tel" required />
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn--primary btn--block btn--lg">Continue to Booking</button>
+        <p class="form-note">By submitting, you agree to be contacted about a Goatara partnership. No spam, ever.</p>
+      </form>
+    </div>
+  </div>`;
   }
+
+  const modalHost = document.createElement("div");
+  modalHost.innerHTML = bookingModalMarkup();
+  const bookingModal = modalHost.firstElementChild;
+  document.body.appendChild(bookingModal);
+
+  const bookingForm = bookingModal.querySelector("#qualifyForm");
+  const bookingCta = bookingModal.querySelector("[data-booking-ready]");
+  let lastFocused = null;
+
+  const openBookingModal = () => {
+    lastFocused = document.activeElement;
+    bookingModal.classList.add("open");
+    bookingModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("modal-open");
+    const target = bookingForm.hidden ? bookingCta : bookingModal.querySelector("#q_stage");
+    if (target) target.focus();
+  };
+  const closeBookingModal = () => {
+    bookingModal.classList.remove("open");
+    bookingModal.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("modal-open");
+    if (lastFocused) lastFocused.focus();
+  };
+
+  document.querySelectorAll("[data-open-qualify]").forEach((b) => b.addEventListener("click", openBookingModal));
+  bookingModal.querySelectorAll("[data-close-qualify]").forEach((c) => c.addEventListener("click", closeBookingModal));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && bookingModal.classList.contains("open")) closeBookingModal();
+  });
+
+  wireEmailForm(bookingForm, "#qualifySuccess", () => {
+    bookingForm.hidden = true;
+    const eyebrow = bookingModal.querySelector(".modal__head .eyebrow");
+    const title = bookingModal.querySelector("#qualifyTitle");
+    const intro = bookingModal.querySelector(".modal__head p");
+    if (eyebrow) eyebrow.textContent = "Step 2 of 2";
+    if (title) title.textContent = "Pick your time";
+    if (intro) intro.remove();
+    if (bookingCta) bookingCta.focus();
+  });
 
   /* Footer year */
   const yearEl = document.querySelector("#year");
@@ -260,7 +405,16 @@
     const link = e.target.closest ? e.target.closest("a[href]") : null;
     if (!link) return;
     const href = link.getAttribute("href") || "";
-    if (/^(tel:|mailto:)/i.test(href) || link.hostname === "calendar.app.google") {
+
+    if (link.hostname === BOOKING_HOST) {
+      // The post-form CTA already recorded its lead on submit; everything else must qualify first.
+      if (link.hasAttribute("data-booking-ready")) return;
+      e.preventDefault();
+      openBookingModal();
+      return;
+    }
+
+    if (/^(tel:|mailto:)/i.test(href)) {
       recordLead();
     }
   });

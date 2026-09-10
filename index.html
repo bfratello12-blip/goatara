@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <!-- Google tag (gtag.js) -->
@@ -12,8 +12,8 @@
   </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Goatara — We Build, Run and Pay For Your Shopify Store. You Keep 60%.</title>
-  <meta name="description" content="Goatara builds your Shopify store, runs the ads and funds the ad spend. You supply the products and ship the orders, and keep 60% of revenue. No upfront cost — we only get paid when the store sells." />
+  <title>Goatara â€” We Build, Run and Pay For Your Shopify Store. You Keep 60%.</title>
+  <meta name="description" content="Goatara builds your Shopify store, runs the ads and funds the ad spend. You supply the products and ship the orders, and keep 60% of revenue. No upfront cost â€” we only get paid when the store sells." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -386,130 +386,6 @@
       </div>
     </section>
   </main>
-
-  <!-- QUALIFY MODAL -->
-  <div class="modal" id="qualifyModal" aria-hidden="true">
-    <div class="modal__overlay" data-close-qualify></div>
-    <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="qualifyTitle">
-      <button type="button" class="modal__close" aria-label="Close" data-close-qualify>
-        <svg viewBox="0 0 24 24" fill="none" width="20" height="20"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-      </button>
-      <div class="modal__head">
-        <span class="eyebrow">See if you're a fit</span>
-        <h2 id="qualifyTitle">Tell us about your business</h2>
-        <p>A few quick details and we'll tell you honestly whether a Goatara partnership makes sense. No cost, no pressure, and no store required to apply.</p>
-      </div>
-
-      <div class="form-success" id="qualifySuccess">Thanks! We've received your details and will be in touch shortly to let you know whether we're a fit.</div>
-
-      <form class="qualify-form" id="qualifyForm" action="https://formsubmit.co/contact@goatara.com" method="POST" novalidate>
-        <input type="hidden" name="_subject" value="New partnership application — Goatara" />
-        <input type="hidden" name="_template" value="table" />
-        <input type="hidden" name="_cc" value="bfratello@goatara.com,hmdodds@goatara.com,emdodds@goatara.com" />
-        <input type="text" name="_honey" style="display:none" tabindex="-1" autocomplete="off" />
-
-        <div class="field">
-          <label for="q_stage">Where are you at right now?</label>
-          <select id="q_stage" name="current_stage">
-            <option value="">Select one</option>
-            <option>I have products but I'm not selling online yet</option>
-            <option>I'm getting ready to launch my first store</option>
-            <option>I have a Shopify store, not launched yet</option>
-            <option>I have a Shopify store, live but barely selling</option>
-            <option>I have a Shopify store that's doing well</option>
-            <option>I sell on Amazon or another marketplace</option>
-            <option>I sell through retail, wholesale or in person</option>
-            <option>I sell through social media or direct messages</option>
-            <option>I have a website, but it's not Shopify</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label for="q_url">Link to your store, listings or products <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-          <input type="text" id="q_url" name="store_url" placeholder="https://" />
-        </div>
-
-        <div class="field-row">
-          <div class="field">
-            <label for="q_category">What do you sell?</label>
-            <input type="text" id="q_category" name="product_category" placeholder="e.g. Home &amp; kitchen" />
-          </div>
-          <div class="field">
-            <label for="q_skus">Roughly how many products?</label>
-            <input type="number" id="q_skus" name="sku_count" min="1" placeholder="e.g. 12" />
-          </div>
-        </div>
-
-        <div class="field">
-          <label for="q_revenue">Current monthly revenue across all channels</label>
-          <select id="q_revenue" name="revenue_range">
-            <option value="">Select a range</option>
-            <option>Not selling yet</option>
-            <option>Under $5,000</option>
-            <option>$5,000 – $25,000</option>
-            <option>$25,000 – $50,000</option>
-            <option>$50,000 – $100,000</option>
-            <option>$100,000 – $250,000</option>
-            <option>$250,000+</option>
-          </select>
-        </div>
-
-        <div class="field-row">
-          <div class="field">
-            <label for="q_fulfillment">How would orders get shipped?</label>
-            <select id="q_fulfillment" name="fulfillment_method">
-              <option value="">Select one</option>
-              <option>I ship them myself</option>
-              <option>3PL / warehouse</option>
-              <option>My supplier or manufacturer ships them</option>
-              <option>Fulfilled by Amazon (FBA)</option>
-              <option>Print on demand / dropshipping</option>
-              <option>Not sure yet</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="q_timeline">When would you want to start?</label>
-            <select id="q_timeline" name="launch_timeline">
-              <option value="">Select one</option>
-              <option>As soon as possible</option>
-              <option>Within 1 month</option>
-              <option>1–3 months</option>
-              <option>3+ months</option>
-              <option>Just exploring</option>
-            </select>
-          </div>
-        </div>
-
-        <hr class="modal__divider" />
-
-        <div class="field-row">
-          <div class="field">
-            <label for="q_name">Full name</label>
-            <input type="text" id="q_name" name="name" autocomplete="name" />
-          </div>
-          <div class="field">
-            <label for="q_company">Business name <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-            <input type="text" id="q_company" name="company" autocomplete="organization" />
-          </div>
-        </div>
-
-        <div class="field-row">
-          <div class="field">
-            <label for="q_email">Email</label>
-            <input type="email" id="q_email" name="email" autocomplete="email" />
-          </div>
-          <div class="field">
-            <label for="q_phone">Phone</label>
-            <input type="tel" id="q_phone" name="phone" autocomplete="tel" />
-          </div>
-        </div>
-
-        <button type="submit" class="btn btn--primary btn--block btn--lg">Check If You're a Fit</button>
-        <p class="form-note">By submitting, you agree to be contacted about a Goatara partnership. No spam, ever.</p>
-      </form>
-    </div>
-  </div>
-
 
   <!-- FOOTER -->
   <footer class="site-footer">
