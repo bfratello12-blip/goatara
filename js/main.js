@@ -224,7 +224,7 @@
   /* Booking gate — the scheduler is only reachable after the qualify form is submitted, so no
      call lands on the calendar without business details attached. The markup lives here rather
      than in each page so the five static pages stay in sync. */
-  const BOOKING_URL = "https://calendar.app.google/x9btkbbEKBuM6irs5";
+  const BOOKING_URL = "https://calendar.app.google/aj6uBm2Cpy4GWx1n9";
   const BOOKING_HOST = "calendar.app.google";
 
   function bookingModalMarkup() {
