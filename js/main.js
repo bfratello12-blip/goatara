@@ -167,8 +167,52 @@
     return conversionId;
   }
 
+  /* UTM persistence — read straight from the current URL's query string. */
+  function getUtmParams() {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      utm_source: params.get("utm_source") || "",
+      utm_medium: params.get("utm_medium") || "",
+      utm_campaign: params.get("utm_campaign") || "",
+      utm_content: params.get("utm_content") || "",
+      utm_term: params.get("utm_term") || "",
+    };
+  }
+
+  /* Background sync to Google Sheets via our own serverless endpoint. Fire-and-forget: a
+     failure here must never affect the FormSubmit email flow or the on-page success state. */
+  function saveLeadToSheets(formValues) {
+    const payload = Object.assign(
+      {
+        current_stage: formValues.current_stage || "",
+        store_url: formValues.store_url || "",
+        product_category: formValues.product_category || "",
+        sku_count: formValues.sku_count || "",
+        revenue_range: formValues.revenue_range || "",
+        fulfillment_method: formValues.fulfillment_method || "",
+        launch_timeline: formValues.launch_timeline || "",
+        name: formValues.name || "",
+        company: formValues.company || "",
+        email: formValues.email || "",
+        phone: formValues.phone || "",
+        page_url: window.location.href,
+        referrer: document.referrer || "",
+      },
+      getUtmParams()
+    );
+
+    fetch("/api/save-lead", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => {
+      /* Sheets sync is best-effort only; the lead has already been emailed via FormSubmit. */
+    });
+  }
+
   /* Forms — deliver submissions via email (FormSubmit) */
-  function wireEmailForm(form, successSelector, onSuccess) {
+  function wireEmailForm(form, successSelector, onSuccess, collectLead) {
     if (!form) return;
     form.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -201,6 +245,7 @@
         .then((res) => {
           if (!res.ok) throw new Error("Submission failed");
           recordLead({ email: formValues.email, phone: formValues.phone });
+          if (collectLead) saveLeadToSheets(formValues);
           const success = document.querySelector(successSelector);
           if (success) {
             success.classList.add("show");
@@ -385,16 +430,21 @@
     if (e.key === "Escape" && bookingModal.classList.contains("open")) closeBookingModal();
   });
 
-  wireEmailForm(bookingForm, "#qualifySuccess", () => {
-    bookingForm.hidden = true;
-    const eyebrow = bookingModal.querySelector(".modal__head .eyebrow");
-    const title = bookingModal.querySelector("#qualifyTitle");
-    const intro = bookingModal.querySelector(".modal__head p");
-    if (eyebrow) eyebrow.textContent = "Step 2 of 2";
-    if (title) title.textContent = "Pick your time";
-    if (intro) intro.remove();
-    if (bookingCta) bookingCta.focus();
-  });
+  wireEmailForm(
+    bookingForm,
+    "#qualifySuccess",
+    () => {
+      bookingForm.hidden = true;
+      const eyebrow = bookingModal.querySelector(".modal__head .eyebrow");
+      const title = bookingModal.querySelector("#qualifyTitle");
+      const intro = bookingModal.querySelector(".modal__head p");
+      if (eyebrow) eyebrow.textContent = "Step 2 of 2";
+      if (title) title.textContent = "Pick your time";
+      if (intro) intro.remove();
+      if (bookingCta) bookingCta.focus();
+    },
+    true
+  );
 
   /* Footer year */
   const yearEl = document.querySelector("#year");
