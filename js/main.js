@@ -264,10 +264,6 @@
     });
   }
 
-  /* Booking gate — the scheduler is only reachable after the qualify form is submitted, so no
-     call lands on the calendar without business details attached. The markup lives here rather
-     than in each page so the five static pages stay in sync. */
-  const BOOKING_URL = "https://calendar.app.google/aj6uBm2Cpy4GWx1n9";
   const BOOKING_HOST = "calendar.app.google";
 
   function bookingModalMarkup() {
@@ -278,15 +274,14 @@
         <svg viewBox="0 0 24 24" fill="none" width="20" height="20"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
       </button>
       <div class="modal__head">
-        <span class="eyebrow">Step 1 of 2</span>
+        <span class="eyebrow">Partnership enquiry</span>
         <h2 id="qualifyTitle">Tell us about your business</h2>
-        <p>We come to every call already knowing what you sell, so we ask for the details first. Fill this in and the booking calendar opens on the next step.</p>
+        <p>Tell us what you sell and we'll be in touch about whether a Goatara partnership is a fit.</p>
       </div>
 
-      <div class="form-success" id="qualifySuccess">
+      <div class="form-success" id="qualifySuccess" tabindex="-1" role="status">
         <p><b>Got it &mdash; your details are on their way to us.</b></p>
-        <p>Now pick a time that suits you and we'll come to the call prepared.</p>
-        <a class="btn btn--primary btn--block btn--lg" href="${BOOKING_URL}" target="_blank" rel="noopener" data-booking-ready>Choose Your Time</a>
+        <p>We'll review your business details and get back to you within one business day.</p>
       </div>
 
       <form class="qualify-form" id="qualifyForm" action="https://formsubmit.co/contact@goatara.com" method="POST" novalidate>
@@ -391,7 +386,7 @@
           </div>
         </div>
 
-        <button type="submit" class="btn btn--primary btn--block btn--lg">Continue to Booking</button>
+        <button type="submit" class="btn btn--primary btn--block btn--lg">Submit My Details</button>
         <p class="form-note">By submitting, you agree to be contacted about a Goatara partnership. No spam, ever.</p>
       </form>
     </div>
@@ -404,7 +399,7 @@
   document.body.appendChild(bookingModal);
 
   const bookingForm = bookingModal.querySelector("#qualifyForm");
-  const bookingCta = bookingModal.querySelector("[data-booking-ready]");
+  const leadSuccess = bookingModal.querySelector("#qualifySuccess");
   let lastFocused = null;
 
   const openBookingModal = () => {
@@ -412,7 +407,7 @@
     bookingModal.classList.add("open");
     bookingModal.setAttribute("aria-hidden", "false");
     document.body.classList.add("modal-open");
-    const target = bookingForm.hidden ? bookingCta : bookingModal.querySelector("#q_stage");
+    const target = bookingForm.hidden ? leadSuccess : bookingModal.querySelector("#q_stage");
     if (target) target.focus();
   };
   const closeBookingModal = () => {
@@ -436,10 +431,10 @@
       const eyebrow = bookingModal.querySelector(".modal__head .eyebrow");
       const title = bookingModal.querySelector("#qualifyTitle");
       const intro = bookingModal.querySelector(".modal__head p");
-      if (eyebrow) eyebrow.textContent = "Step 2 of 2";
-      if (title) title.textContent = "Pick your time";
+      if (eyebrow) eyebrow.textContent = "Thank you";
+      if (title) title.textContent = "Your details have been sent";
       if (intro) intro.remove();
-      if (bookingCta) bookingCta.focus();
+      if (leadSuccess) leadSuccess.focus();
     },
     true
   );
@@ -455,8 +450,6 @@
     const href = link.getAttribute("href") || "";
 
     if (link.hostname === BOOKING_HOST) {
-      // The post-form CTA already recorded its lead on submit; everything else must qualify first.
-      if (link.hasAttribute("data-booking-ready")) return;
       e.preventDefault();
       openBookingModal();
       return;
