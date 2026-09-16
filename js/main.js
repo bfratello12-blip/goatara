@@ -264,8 +264,6 @@
     });
   }
 
-  wireEmailForm(document.querySelector("#contactForm"), "#formSuccess");
-
   /* Booking gate — the scheduler is only reachable after the qualify form is submitted, so no
      call lands on the calendar without business details attached. The markup lives here rather
      than in each page so the five static pages stay in sync. */

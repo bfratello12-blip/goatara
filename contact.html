@@ -77,11 +77,11 @@
             <span class="eyebrow">Three ways to reach us</span>
             <h2 style="margin-bottom: 24px;">Pick whatever's easiest</h2>
             <div class="contact-methods">
-              <a href="#contactForm" class="contact-method">
+              <a href="https://calendar.app.google/aj6uBm2Cpy4GWx1n9" class="contact-method">
                 <span class="contact-method__icon"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 2v4M16 2v4M3 10h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
                 <div>
                   <h3>Book a call</h3>
-                  <p>Grab a free discovery slot &mdash; use the form and we'll send times.</p>
+                  <p>Grab a free discovery slot &mdash; tell us about your business, then choose a time.</p>
                 </div>
               </a>
               <a href="mailto:contact@goatara.com?bcc=bfratello@goatara.com,hmdodds@goatara.com,emdodds@goatara.com" class="contact-method">
@@ -110,61 +110,11 @@
 
           <!-- Form -->
           <div class="reveal" data-delay="1">
-            <form class="form-card" id="contactForm" action="https://formsubmit.co/contact@goatara.com" method="POST" novalidate>
-              <input type="hidden" name="_subject" value="New contact form submission — Goatara" />
-              <input type="hidden" name="_template" value="table" />
-              <input type="hidden" name="_cc" value="bfratello@goatara.com,hmdodds@goatara.com,emdodds@goatara.com" />
-              <input type="text" name="_honey" style="display:none" tabindex="-1" autocomplete="off" />
+            <div id="contactForm">
               <h2 style="margin-bottom: 8px;">Book your free call</h2>
-              <p style="margin-bottom: 22px;">Tell us a little about your business and we'll be in touch within one business day.</p>
-
-              <div class="form-success" id="formSuccess">Thanks! Your message has been sent. We'll get back to you shortly.</div>
-
-              <div class="field-row">
-                <div class="field">
-                  <label for="firstName">First name</label>
-                  <input type="text" id="firstName" name="firstName" autocomplete="given-name" />
-                </div>
-                <div class="field">
-                  <label for="lastName">Last name</label>
-                  <input type="text" id="lastName" name="lastName" autocomplete="family-name" />
-                </div>
-              </div>
-
-              <div class="field-row">
-                <div class="field">
-                  <label for="email">Email</label>
-                  <input type="email" id="email" name="email" autocomplete="email" />
-                </div>
-                <div class="field">
-                  <label for="phone">Phone <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                  <input type="tel" id="phone" name="phone" autocomplete="tel" />
-                </div>
-              </div>
-
-              <div class="field">
-                <label for="store">Where do you sell today?</label>
-                <select id="store" name="store">
-                  <option value="">Select one</option>
-                  <option>Not selling online yet</option>
-                  <option>Getting ready to launch</option>
-                  <option>Shopify store, live but slow</option>
-                  <option>Shopify store, doing well</option>
-                  <option>Amazon or another marketplace</option>
-                  <option>A website that isn't Shopify</option>
-                  <option>Retail, wholesale or in person</option>
-                  <option>Social media or direct</option>
-                </select>
-              </div>
-
-              <div class="field">
-                <label for="message">Tell us about your products</label>
-                <textarea id="message" name="message" placeholder="What do you sell, and what's standing between you and more online sales right now?"></textarea>
-              </div>
-
-              <button type="submit" class="btn btn--primary btn--block btn--lg">Send &amp; Request My Call</button>
-              <p class="form-note">By submitting, you agree to be contacted about a Goatara partnership. No spam, ever.</p>
-            </form>
+              <p style="margin-bottom: 22px;">Find out whether a Goatara partnership is right for your business. No cost, no obligation.</p>
+              <button type="button" class="btn btn--primary btn--block btn--lg" data-open-qualify>Send &amp; Request My Call</button>
+            </div>
           </div>
         </div>
       </div>
