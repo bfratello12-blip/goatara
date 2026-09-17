@@ -179,36 +179,39 @@
     };
   }
 
-  /* Background sync to Google Sheets via our own serverless endpoint. Fire-and-forget: a
-     failure here must never affect the FormSubmit email flow or the on-page success state. */
-  function saveLeadToSheets(formValues) {
-    const payload = Object.assign(
-      {
-        current_stage: formValues.current_stage || "",
-        store_url: formValues.store_url || "",
-        product_category: formValues.product_category || "",
-        sku_count: formValues.sku_count || "",
-        revenue_range: formValues.revenue_range || "",
-        fulfillment_method: formValues.fulfillment_method || "",
-        launch_timeline: formValues.launch_timeline || "",
-        name: formValues.name || "",
-        company: formValues.company || "",
-        email: formValues.email || "",
-        phone: formValues.phone || "",
-        page_url: window.location.href,
-        referrer: document.referrer || "",
-      },
-      getUtmParams()
-    );
+  function saveLead(formValues) {
+    try {
+      const payload = Object.assign(
+        {
+          submission_id: generateConversionId(),
+          _honey: formValues._honey || "",
+          current_stage: formValues.current_stage || "",
+          store_url: formValues.store_url || "",
+          product_category: formValues.product_category || "",
+          sku_count: formValues.sku_count || "",
+          revenue_range: formValues.revenue_range || "",
+          fulfillment_method: formValues.fulfillment_method || "",
+          launch_timeline: formValues.launch_timeline || "",
+          name: formValues.name || "",
+          company: formValues.company || "",
+          email: formValues.email || "",
+          phone: formValues.phone || "",
+          page_url: window.location.href,
+          referrer: document.referrer || "",
+        },
+        getUtmParams()
+      );
 
-    fetch("/api/save-lead", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      keepalive: true,
-    }).catch(() => {
-      /* Sheets sync is best-effort only; the lead has already been emailed via FormSubmit. */
-    });
+      const request = {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        keepalive: true,
+      };
+      fetch("/api/save-lead", request)
+        .catch(() => fetch("/api/save-lead", request))
+        .catch(() => {});
+    } catch (err) {}
   }
 
   /* Forms — deliver submissions via email (FormSubmit) */
@@ -233,9 +236,11 @@
       }
 
       const submitBtn = form.querySelector('button[type="submit"]');
+      if (submitBtn && submitBtn.disabled) return;
       if (submitBtn) submitBtn.disabled = true;
 
       const formValues = Object.fromEntries(new FormData(form).entries());
+      if (collectLead) saveLead(formValues);
 
       fetch(endpoint, {
         method: "POST",
@@ -245,7 +250,6 @@
         .then((res) => {
           if (!res.ok) throw new Error("Submission failed");
           recordLead({ email: formValues.email, phone: formValues.phone });
-          if (collectLead) saveLeadToSheets(formValues);
           const success = document.querySelector(successSelector);
           if (success) {
             success.classList.add("show");

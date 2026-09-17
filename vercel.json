@@ -1,0 +1,10 @@
+{
+  "framework": null,
+  "buildCommand": "npm run build",
+  "outputDirectory": ".",
+  "functions": {
+    "api/save-lead.js": {
+      "maxDuration": 30
+    }
+  }
+}

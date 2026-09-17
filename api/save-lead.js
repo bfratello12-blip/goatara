@@ -1,6 +1,10 @@
-const MAX_STRING_LENGTH = 2048;
+const { setTimeout: retryDelay } = require("node:timers/promises");
+const { randomUUID } = require("node:crypto");
 
-// Every field is optional/free-text from the lead form, so just cap length and coerce to string.
+const MAX_STRING_LENGTH = 2048;
+const MAX_BODY_BYTES = 64 * 1024;
+const CRM_INTAKE_PATH = "/api/intake/leads";
+
 const FIELDS = [
   "current_stage",
   "store_url",
@@ -22,6 +26,20 @@ const FIELDS = [
   "utm_term",
 ];
 
+const CRM_FIELDS = [
+  ["current_stage", "currentSituation", 10000, true],
+  ["store_url", "storeUrl", 2000, false],
+  ["product_category", "products", 10000, true],
+  ["sku_count", "productCount", 200, false],
+  ["revenue_range", "monthlyRevenue", 200, true],
+  ["fulfillment_method", "shippingMethod", 2000, true],
+  ["launch_timeline", "desiredStart", 1000, true],
+  ["name", "fullName", 200, true],
+  ["company", "businessName", 200, false],
+  ["email", "email", 254, true],
+  ["phone", "phone", 80, true],
+];
+
 function parseBody(req) {
   if (req.body && typeof req.body === "object") return req.body;
   if (typeof req.body === "string" && req.body.length) {
@@ -40,22 +58,10 @@ function sanitize(value) {
   return trimmed.length ? trimmed : undefined;
 }
 
-module.exports = async function handler(req, res) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
+async function saveToSheets(body) {
   const sheetsUrl = process.env.GOATARA_SHEETS_URL;
   const sheetsSecret = process.env.GOATARA_SHEETS_SECRET;
-  if (!sheetsUrl || !sheetsSecret) {
-    console.error("Google Sheets lead sync is not configured", { hasUrl: Boolean(sheetsUrl), hasSecret: Boolean(sheetsSecret) });
-    // The lead form itself must never fail because of this integration.
-    return res.status(200).json({ ok: false, error: "Not configured" });
-  }
-
-  const body = parseBody(req);
-  if (!body) return res.status(400).json({ error: "Malformed JSON body" });
+  if (!sheetsUrl || !sheetsSecret) return;
 
   const payload = { secret: sheetsSecret };
   for (const field of FIELDS) {
@@ -68,17 +74,178 @@ module.exports = async function handler(req, res) {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(5000),
     });
 
     if (!sheetsRes.ok) {
-      console.error("Google Sheets lead sync rejected the request", sheetsRes.status, await sheetsRes.text());
-      // Still 200 — saving to Sheets is a background action, not a blocker for the lead flow.
-      return res.status(200).json({ ok: false, error: "Upstream error" });
+      console.error("Google Sheets lead sync rejected the request", { status: sheetsRes.status });
     }
-
-    return res.status(200).json({ ok: true });
-  } catch (err) {
-    console.error("Google Sheets lead sync request failed", err && err.message);
-    return res.status(200).json({ ok: false, error: "Request failed" });
+    await sheetsRes.body?.cancel();
+  } catch {
+    console.error("Google Sheets lead sync request failed");
   }
+}
+
+function logCrmDelivery(diagnostic, event, details = {}) {
+  const record = { ...diagnostic, event, status: null, category: null, ...details };
+  if (record.category && record.category !== "accepted") console.error("CRM lead delivery", record);
+  else console.info("CRM lead delivery", record);
+}
+
+function responseCategory(status) {
+  if (status === 401 || status === 403) return "authentication";
+  if (status === 429) return "rate_limited";
+  if (status === 409) return "conflict";
+  if (status === 400) return "validation";
+  if (status >= 500) return "upstream_5xx";
+  if (status >= 300 && status < 400) return "redirect";
+  return "http_rejection";
+}
+
+function requestErrorCategory(error) {
+  const code = error?.cause?.code || error?.code;
+  if (["TimeoutError", "AbortError"].includes(error?.name) ||
+    ["ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"].includes(code)) {
+    return "timeout";
+  }
+  if (["ENOTFOUND", "EAI_AGAIN"].includes(code)) return "dns";
+  if (["CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT", "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+    "ERR_TLS_CERT_ALTNAME_INVALID", "SELF_SIGNED_CERT_IN_CHAIN"].includes(code)) return "tls";
+  return "network";
+}
+
+async function saveToCrm(payload, submissionId, diagnostic) {
+  const finish = (result, category, status = null) => {
+    logCrmDelivery(diagnostic, "complete", { outcome: result.ok ? "success" : "failure", category, status });
+    return result;
+  };
+  const notConfigured = category => finish({ ok: false, status: 503, error: "CRM is not configured" }, category);
+  const configuredUrl = process.env.CRM_INTAKE_URL?.trim();
+  if (!configuredUrl) return notConfigured("missing_url");
+  let endpoint;
+  try {
+    const base = new URL(configuredUrl);
+    const localHttp = process.env.NODE_ENV !== "production" && base.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname);
+    if ((!localHttp && base.protocol !== "https:") || base.username || base.password ||
+      base.search || base.hash || !["", CRM_INTAKE_PATH].includes(base.pathname.replace(/\/+$/, ""))) {
+      return notConfigured("invalid_url");
+    }
+    endpoint = new URL(CRM_INTAKE_PATH, base);
+  } catch {
+    return notConfigured("invalid_url");
+  }
+  diagnostic.hostname = endpoint.hostname;
+  const secret = process.env.CRM_INTAKE_SECRET;
+  if (!secret) return notConfigured("missing_secret");
+  if (secret.length < 32 || !/^[\x21-\x7e]+$/.test(secret)) return notConfigured("invalid_secret");
+  const protectionBypass = process.env.CRM_VERCEL_PROTECTION_BYPASS;
+  if (protectionBypass && !/^[\x21-\x7e]+$/.test(protectionBypass)) {
+    return notConfigured("invalid_protection_bypass");
+  }
+
+  const headers = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    Authorization: `Bearer ${secret}`,
+    "Idempotency-Key": submissionId,
+  };
+  if (protectionBypass) {
+    headers["x-vercel-protection-bypass"] = protectionBypass;
+  }
+  const body = JSON.stringify(payload);
+  let lastStatus = null;
+  let lastCategory = "network";
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    diagnostic.attempt = attempt;
+    diagnostic.attempted = true;
+    logCrmDelivery(diagnostic, "attempt");
+    lastStatus = null;
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body,
+        redirect: "error",
+        signal: AbortSignal.timeout(5000),
+      });
+      lastStatus = response.status;
+      if (response.ok) {
+        const receipt = await response.json().catch(() => null);
+        if (receipt && typeof receipt.companyId === "string" && receipt.companyId &&
+          typeof receipt.created === "boolean" && typeof receipt.replayed === "boolean") {
+          logCrmDelivery(diagnostic, "response", { status: response.status, category: "accepted" });
+          return finish({ ok: true, status: 200 }, "accepted", response.status);
+        }
+        lastCategory = "invalid_receipt";
+      } else {
+        lastCategory = responseCategory(response.status);
+        await response.body?.cancel().catch(() => {});
+      }
+      logCrmDelivery(diagnostic, "response", { status: response.status, category: lastCategory });
+      if (!response.ok && response.status !== 429 && response.status < 500) {
+        return finish({ ok: false, status: [400, 409].includes(response.status) ? response.status : 502,
+          error: "CRM delivery failed" }, lastCategory, response.status);
+      }
+    } catch (error) {
+      lastCategory = requestErrorCategory(error);
+      logCrmDelivery(diagnostic, "response", { status: lastStatus, category: lastCategory });
+    }
+    if (attempt < 3) await retryDelay(250 * 2 ** (attempt - 1));
+  }
+  return finish({ ok: false, status: lastStatus === 429 ? 429 : 502, error: "CRM delivery failed" }, lastCategory, lastStatus);
+}
+
+module.exports = async function handler(req, res) {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Goatara-Lead-Relay", "crm-v1");
+  const diagnostic = { deliveryId: randomUUID(), attempted: false, hostname: null, path: CRM_INTAKE_PATH, attempt: 0 };
+  const reject = (status, error, category) => {
+    logCrmDelivery(diagnostic, "complete", { outcome: "failure", category });
+    return res.status(status).json({ error });
+  };
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return reject(405, "Method not allowed", "method");
+  }
+  if ((req.headers?.["content-type"] || "").split(";")[0].trim().toLowerCase() !== "application/json") {
+    return reject(415, "Send a JSON body", "content_type");
+  }
+  try {
+    if (req.headers?.["sec-fetch-site"] === "cross-site" ||
+      (req.headers?.origin && new URL(req.headers.origin).host !== req.headers.host)) {
+      return reject(403, "Origin not allowed", "origin");
+    }
+  } catch {
+    return reject(403, "Origin not allowed", "origin");
+  }
+  const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {});
+  if (Buffer.byteLength(rawBody, "utf8") > MAX_BODY_BYTES) {
+    return reject(413, "Request body is too large", "body_too_large");
+  }
+  const body = parseBody(req);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return reject(400, "Malformed JSON body", "invalid_json");
+  }
+  if (body._honey) {
+    logCrmDelivery(diagnostic, "complete", { outcome: "skipped", category: "honeypot" });
+    return res.status(200).json({ ok: true });
+  }
+  const submissionId = body.submission_id === undefined ? randomUUID() : body.submission_id;
+  if (typeof submissionId !== "string" || !/^[A-Za-z0-9_-]{16,100}$/.test(submissionId)) {
+    return reject(400, "Invalid submission ID", "invalid_submission_id");
+  }
+  const payload = {};
+  for (const [field, crmField, maxLength, required] of CRM_FIELDS) {
+    if (body[field] != null && typeof body[field] !== "string") {
+      return reject(400, `Invalid ${field}`, "invalid_fields");
+    }
+    const value = (body[field] || "").trim();
+    if ((required && !value) || value.length > maxLength) {
+      return reject(400, `Invalid ${field}`, "invalid_fields");
+    }
+    payload[crmField] = value || null;
+  }
+  const [crm] = await Promise.all([saveToCrm(payload, submissionId, diagnostic), saveToSheets(body)]);
+  return res.status(crm.status).json({ ok: crm.ok, submissionId, ...(crm.error ? { error: crm.error } : {}) });
 };
