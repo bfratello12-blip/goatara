@@ -6,7 +6,6 @@ const { resolve, extname, sep } = require("node:path");
 const handler = require("../api/save-lead.js");
 
 const calendarUrl = "https://calendar.app.google/UX3xX5r2br14W3nP7";
-const emailUrl = "https://formsubmit.co/ajax/contact@goatara.com";
 const values = {
   current_stage: "I sell on Amazon or another marketplace",
   store_url: "https://booking.example.test",
@@ -28,12 +27,13 @@ const test = base.extend({
     const originalEnvironment = { ...process.env };
     const site = {
       crmCalls: [],
-      emailCalls: [],
+      emailRelayRequests: [],
       directEmails: [],
+      nativeEmails: [],
+      emailPreflights: 0,
       conversions: [],
       calendarVisits: 0,
       directEmailFails: false,
-      serverEmailSucceeds: true,
       crmStatus: 201,
       holdCrm: false,
       crmFinished: false,
@@ -57,10 +57,6 @@ const test = base.extend({
         if (site.crmStatus !== 201) return new Response("Test rejection", { status: site.crmStatus });
         return Response.json({ companyId: "test-company", created: true, replayed: false }, { status: 201 });
       }
-      if (String(url) === emailUrl) {
-        site.emailCalls.push(JSON.parse(options.body));
-        return Response.json({ success: site.serverEmailSucceeds ? "true" : "false" });
-      }
       throw new Error("Unexpected external request in isolated browser test");
     };
     const server = createServer(async (request, response) => {
@@ -70,6 +66,7 @@ const test = base.extend({
           const chunks = [];
           for await (const chunk of request) chunks.push(chunk);
           request.body = Buffer.concat(chunks).toString("utf8");
+          if (JSON.parse(request.body).delivery === "email") site.emailRelayRequests.push(true);
           response.status = (code) => {
             response.statusCode = code;
             return response;
@@ -145,8 +142,8 @@ test.describe("booking", () => {
         return route.continue();
       }
       if (url.hostname === "formsubmit.co") {
-        if (request.isNavigationRequest()) site.nativeEmailNavigations += 1;
-        if (request.method() === "OPTIONS")
+        if (request.method() === "OPTIONS") {
+          site.emailPreflights += 1;
           return route.fulfill({
             status: 204,
             headers: {
@@ -155,6 +152,21 @@ test.describe("booking", () => {
               "Access-Control-Allow-Methods": "POST",
             },
           });
+        }
+        expect(request.headers()["content-type"]).toContain("application/x-www-form-urlencoded");
+        if (request.isNavigationRequest()) {
+          site.nativeEmailNavigations += 1;
+          expect(request.url()).toBe("https://formsubmit.co/contact@goatara.com");
+          expect(site.crmFinished).toBe(true);
+          const payload = request.postDataJSON();
+          site.nativeEmails.push(payload);
+          expect(payload._next).toBe(calendarUrl);
+          return route.fulfill({
+            contentType: "text/html",
+            body: `<html><head><meta http-equiv="refresh" content="0; url=${calendarUrl}"></head><body>Test acknowledgement</body></html>`,
+          });
+        }
+        expect(request.url()).toBe("https://formsubmit.co/ajax/contact@goatara.com");
         site.directEmails.push(request.postDataJSON());
         if (site.directEmailFails) return route.abort("failed");
         return route.fulfill({ json: { success: "true" }, headers: { "Access-Control-Allow-Origin": "*" } });
@@ -188,21 +200,28 @@ test.describe("booking", () => {
       await fillForm(page);
       await page.screenshot({ path: testInfo.outputPath("booking-form.png") });
       await page.locator('#qualifyForm button[type="submit"]').click();
-      await expect(page.locator("#qualifySuccess.show")).toBeVisible();
+      await expect.poll(() => site.crmCalls.length).toBe(1);
+      if (site.directEmailFails) {
+        await expect(page.locator("#qualifyForm")).toBeVisible();
+        expect(site.nativeEmails).toHaveLength(0);
+      } else await expect(page.locator("#qualifySuccess.show")).toBeVisible();
       await expect(page).toHaveURL(site.origin + action.path);
       expect(site.calendarVisits).toBe(0);
       site.releaseCrm();
       await expect(page).toHaveURL(calendarUrl);
       expect(site.crmCalls).toHaveLength(1);
       expect(site.directEmails).toHaveLength(1);
-      expect(site.emailCalls).toHaveLength(site.directEmailFails ? 1 : 0);
-      const deliveredEmail = site.directEmailFails ? site.emailCalls[0] : site.directEmails[0];
+      expect(site.emailRelayRequests).toHaveLength(0);
+      expect(site.nativeEmails).toHaveLength(site.directEmailFails ? 1 : 0);
+      const deliveredEmail = site.directEmailFails ? site.nativeEmails[0] : site.directEmails[0];
       for (const [field, value] of Object.entries(values)) expect(deliveredEmail[field]).toBe(value);
       expect(deliveredEmail._cc).toBe("bfratello@goatara.com,hmdodds@goatara.com,emdodds@goatara.com");
+      expect(deliveredEmail._next).toBe(calendarUrl);
       expect(site.crmCalls[0].body.fullName).toBe(values.name);
       expect(site.crmCalls[0].body.products).toBe(values.product_category);
-      expect(site.conversions).toHaveLength(1);
-      expect(site.nativeEmailNavigations).toBe(0);
+      expect(site.conversions).toHaveLength(site.directEmailFails ? 0 : 1);
+      expect(site.nativeEmailNavigations).toBe(site.directEmailFails ? 1 : 0);
+      expect(site.emailPreflights).toBe(0);
       expect(page.context().pages()).toHaveLength(1);
     });
   }
@@ -211,7 +230,6 @@ test.describe("booking", () => {
     page,
     site,
   }) => {
-    site.directEmailFails = true;
     await page.goto(site.origin + "/");
     await page.locator(".hero [data-open-qualify]").click();
     await fillForm(page);
@@ -223,29 +241,25 @@ test.describe("booking", () => {
     await page.locator(".nav__book").click();
     await expect(page).toHaveURL(calendarUrl);
     expect(site.crmCalls).toHaveLength(1);
-    expect(site.emailCalls).toHaveLength(1);
+    expect(site.directEmails).toHaveLength(1);
+    expect(site.emailRelayRequests).toHaveLength(0);
     expect(site.conversions).toHaveLength(1);
   });
 
-  test("email failure keeps the form and its answers for a safe retry", async ({ page, site }) => {
+  test("blocked AJAX uses native FormSubmit without the rejected server email route", async ({ page, site }) => {
     site.directEmailFails = true;
-    site.serverEmailSucceeds = false;
     await page.goto(site.origin + "/contact.html");
     await page.locator("#contactForm [data-book-call]").click();
     await fillForm(page);
     await page.locator('#qualifyForm button[type="submit"]').click();
-    await expect(page.locator(".form-error")).toBeVisible();
-    await expect(page.locator("#q_email")).toHaveValue(values.email);
-    await expect(page).toHaveURL(site.origin + "/contact.html");
-    expect(site.calendarVisits).toBe(0);
-    expect(site.nativeEmailNavigations).toBe(0);
-    expect(site.conversions).toHaveLength(0);
-    site.serverEmailSucceeds = true;
-    await page.locator('#qualifyForm button[type="submit"]').click();
     await expect(page).toHaveURL(calendarUrl);
-    expect(site.crmCalls).toHaveLength(2);
-    expect(site.crmCalls[0].headers["Idempotency-Key"]).toBe(site.crmCalls[1].headers["Idempotency-Key"]);
-    expect(site.conversions).toHaveLength(1);
+    expect(site.crmCalls).toHaveLength(1);
+    expect(site.emailRelayRequests).toHaveLength(0);
+    expect(site.nativeEmails).toHaveLength(1);
+    expect(site.nativeEmails[0]._next).toBe(calendarUrl);
+    expect(site.nativeEmails[0]._cc).toBe("bfratello@goatara.com,hmdodds@goatara.com,emdodds@goatara.com");
+    for (const [field, value] of Object.entries(values)) expect(site.nativeEmails[0][field]).toBe(value);
+    expect(site.conversions).toHaveLength(0);
   });
 
   test("CRM rejection cannot block the existing email or the booking calendar", async ({ page, site }) => {

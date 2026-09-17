@@ -228,8 +228,8 @@
     try {
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(payload),
+        headers: { Accept: "application/json" },
+        body: new URLSearchParams(payload),
         signal: controller.signal,
       });
       if (!response.ok) throw new Error("Submission failed");
@@ -239,17 +239,9 @@
     }
   }
 
-  async function sendLeadEmail(endpoint, formValues, submissionId) {
-    try {
-      const receipt = await postFormJson(endpoint, formValues, 8000);
-      if (receipt.success !== true && receipt.success !== "true") throw new Error("Email not accepted");
-    } catch (err) {
-      const receipt = await postFormJson("/api/save-lead", Object.assign({}, formValues, {
-        submission_id: submissionId,
-        delivery: "email",
-      }), 15000);
-      if (!receipt.ok) throw new Error("Email not accepted");
-    }
+  async function sendLeadEmail(endpoint, formValues) {
+    const receipt = await postFormJson(endpoint, formValues, 20000);
+    if (receipt.success !== true && receipt.success !== "true") throw new Error("Email not accepted");
   }
 
   /* Forms — deliver submissions via email (FormSubmit) */
@@ -290,12 +282,17 @@
       if (error) error.hidden = true;
 
       try {
-        await sendLeadEmail(endpoint, formValues, submissionId);
+        await sendLeadEmail(endpoint, formValues);
       } catch (err) {
-        if (error) {
-          error.hidden = false;
-          error.focus();
-          error.scrollIntoView({ behavior: "smooth", block: "center" });
+        await leadDelivery;
+        try {
+          HTMLFormElement.prototype.submit.call(form);
+        } catch (navigationError) {
+          if (error) {
+            error.hidden = false;
+            error.focus();
+            error.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
         }
         if (submitBtn) submitBtn.disabled = false;
         return;
@@ -340,6 +337,7 @@
         <input type="hidden" name="_subject" value="New partnership application — Goatara" />
         <input type="hidden" name="_template" value="table" />
         <input type="hidden" name="_cc" value="bfratello@goatara.com,hmdodds@goatara.com,emdodds@goatara.com" />
+        <input type="hidden" name="_next" value="${BOOKING_URL}" disabled />
         <input type="text" name="_honey" style="display:none" tabindex="-1" autocomplete="off" />
 
         <div class="field">
@@ -459,6 +457,7 @@
 
   const openBookingModal = (booking = false) => {
     bookAfterSubmit = booking;
+    bookingForm.elements.namedItem("_next").disabled = !booking;
     bookingForm.querySelector('button[type="submit"]').textContent = booking
       ? "Submit & Choose a Call Time" : "Submit My Details";
     const calendarLink = bookingModal.querySelector("[data-calendar-direct]");

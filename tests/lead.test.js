@@ -56,7 +56,6 @@ function setup(testContext, environment = {}) {
   const calls = [];
   testContext.mock.method(globalThis, "fetch", async (url, options) => {
     calls.push({ url, options });
-    if (String(url) === "https://formsubmit.co/ajax/contact@goatara.com") return Response.json({ success: "true" });
     return receipt();
   });
   return { calls, logs };
@@ -101,53 +100,15 @@ test("CRM receives all eleven fields, server credentials and a stable non-attrib
   assert.equal(JSON.stringify(response.body).includes(process.env.CRM_INTAKE_SECRET), false);
 });
 
-test("email fallback relays all lead fields to the original fixed FormSubmit recipients only", async (testContext) => {
-  const { calls } = setup(testContext, { CRM_INTAKE_SECRET: "" });
-  testContext.mock.method(globalThis, "fetch", async (url, options) => {
-    calls.push({ url, options });
-    return Response.json({ success: "true" });
-  });
-  const response = await submit({
-    ...form,
-    delivery: "email",
-    _cc: "untrusted@example.test",
-    _subject: "Untrusted subject",
-    _next: "https://untrusted.example",
-    utm_source: "discard",
-  });
-  assert.equal(response.statusCode, 200);
-  assert.equal(response.body.ok, true);
+test("retired server email requests cannot claim email success or repeat CRM delivery", async (testContext) => {
+  const { calls } = setup(testContext);
+  const response = await submit({ ...form, delivery: "email" });
+  assert.equal(response.statusCode, 410);
+  assert.equal(response.body.ok, false);
   assert.equal(response.body.delivery, "email");
+  assert.equal(calls.length, 0);
+  assert.equal((await submit()).body.ok, true);
   assert.equal(calls.length, 1);
-  assert.equal(String(calls[0].url), "https://formsubmit.co/ajax/contact@goatara.com");
-  assert.equal(calls[0].options.headers.Authorization, undefined);
-  assert.equal(calls[0].options.redirect, "error");
-  assert.ok(calls[0].options.signal instanceof AbortSignal);
-  const payload = JSON.parse(calls[0].options.body);
-  for (const field of Object.keys(form).filter(field => field !== "submission_id")) assert.equal(payload[field], form[field]);
-  assert.equal(payload._cc, "bfratello@goatara.com,hmdodds@goatara.com,emdodds@goatara.com");
-  assert.equal(payload._subject, "New partnership application \u2014 Goatara");
-  assert.equal(payload._template, "table");
-  assert.equal(payload._honey, "");
-  for (const field of ["delivery", "submission_id", "_next", "utm_source"]) assert.equal(field in payload, false);
-});
-
-test("email fallback requires a positive provider acknowledgement and never logs personal data", async (testContext) => {
-  const { logs } = setup(testContext);
-  for (const upstream of [
-    () => Response.json({ success: false, message: form.email }),
-    () => new Response("<html>Not delivered</html>"),
-    () => new Response(form.phone, { status: 503 }),
-    () => { throw new TypeError(form.email); },
-  ]) {
-    testContext.mock.method(globalThis, "fetch", async () => upstream());
-    const response = await submit({ ...form, delivery: "email" });
-    assert.equal(response.statusCode, 502);
-    assert.equal(response.body.ok, false);
-  }
-  for (const value of [form.email, form.phone, form.name, process.env.CRM_INTAKE_SECRET]) {
-    assert.equal(JSON.stringify(logs).includes(value), false);
-  }
 });
 
 test("business name, product count and store URL stay optional", async (testContext) => {
@@ -508,7 +469,7 @@ function emailForm(testContext, emailStatus = 200) {
       return delivery;
     }
     assert.equal(url, "https://formsubmit.co/ajax/contact@goatara.com");
-    emails.push({ url, options, payload: JSON.parse(options.body) });
+    emails.push({ url, options, payload: Object.fromEntries(new URLSearchParams(options.body.toString())) });
     if (emailStatus === 0) return Promise.reject(new TypeError("Simulated mobile DNS failure"));
     return Promise.resolve(Response.json({ success: emailStatus === 200 }, { status: emailStatus }));
   };
@@ -576,31 +537,32 @@ function CRM_FIELDS_FOR_TEST() {
   return Object.keys(form).filter(field => field !== "submission_id");
 }
 
-test("mobile email DNS failure uses the website server without navigating away or repeating CRM delivery", async (testContext) => {
+test("blocked mobile AJAX falls back to the original native FormSubmit request with calendar return", async (testContext) => {
   const { calls } = setup(testContext);
   const browser = emailForm(testContext, 0);
+  browser.window.document.querySelector(".nav__book").click();
   await browser.send();
   assert.equal(browser.emails.length, 1);
-  assert.equal(browser.fallbacks.length, 0);
-  assert.equal(browser.emailRelays.length, 1);
-  for (const field of CRM_FIELDS_FOR_TEST()) assert.equal(browser.emailRelays[0].payload[field], form[field]);
-  assert.equal(browser.emailRelays[0].payload.submission_id, browser.deliveries[0].payload.submission_id);
-  assert.equal(browser.conversions.length, 1);
-  assert.equal(browser.leadForm.hidden, true);
+  assert.equal(browser.fallbacks.length, 1);
+  assert.equal(browser.fallbacks[0].action, "https://formsubmit.co/contact@goatara.com");
+  assert.equal(browser.fallbacks[0].values._next, "https://calendar.app.google/UX3xX5r2br14W3nP7");
+  assert.equal(browser.fallbacks[0].values._cc, "bfratello@goatara.com,hmdodds@goatara.com,emdodds@goatara.com");
+  for (const field of CRM_FIELDS_FOR_TEST()) assert.equal(browser.fallbacks[0].values[field], form[field]);
+  assert.equal(browser.emailRelays.length, 0);
+  assert.equal(browser.conversions.length, 0);
+  assert.equal(browser.leadForm.hidden, false);
   assert.equal(browser.deliveries.length, 1);
-  assert.equal(calls.length, 2);
-  assert.equal(browser.window.location.href, "https://goatara.com/");
+  assert.equal(calls.length, 1);
+  assert.equal(browser.emails[0].options.headers["Content-Type"], undefined);
+  assert.ok(browser.emails[0].options.body instanceof browser.window.URLSearchParams);
   assert.deepEqual(browser.browserErrors, []);
 });
 
-test("failed email fallback retains answers for a retry without a duplicate CRM submission ID", async (testContext) => {
+test("failed native navigation retains answers for a retry without a duplicate CRM submission ID", async (testContext) => {
   setup(testContext);
-  let emailAvailable = false;
-  testContext.mock.method(globalThis, "fetch", async (url) => {
-    if (String(url).includes("formsubmit.co")) return Response.json({ success: emailAvailable });
-    return receipt();
-  });
   const browser = emailForm(testContext, 0);
+  const nativeSubmit = browser.window.HTMLFormElement.prototype.submit;
+  browser.window.HTMLFormElement.prototype.submit = () => { throw new Error("Test navigation unavailable"); };
   await browser.send();
   assert.equal(browser.leadForm.hidden, false);
   assert.equal(browser.leadForm.querySelector(".form-error").hidden, false);
@@ -608,10 +570,11 @@ test("failed email fallback retains answers for a retry without a duplicate CRM 
   assert.equal(browser.leadForm.elements.namedItem("email").value, form.email);
   assert.equal(browser.fallbacks.length, 0);
   assert.equal(browser.conversions.length, 0);
-  emailAvailable = true;
+  browser.window.HTMLFormElement.prototype.submit = nativeSubmit;
   await browser.send();
-  assert.equal(browser.leadForm.hidden, true);
-  assert.equal(browser.conversions.length, 1);
+  assert.equal(browser.fallbacks.length, 1);
+  assert.equal(browser.emailRelays.length, 0);
+  assert.equal(browser.conversions.length, 0);
   assert.equal(browser.deliveries[0].payload.submission_id, browser.deliveries[1].payload.submission_id);
 });
 
