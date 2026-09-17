@@ -249,6 +249,7 @@
     if (!form) return;
     let previousValues = "";
     let submissionId = "";
+    let leadConversionId = "";
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       if (!form.checkValidity()) {
@@ -286,6 +287,9 @@
       } catch (err) {
         await leadDelivery;
         try {
+          if (!leadConversionId) {
+            leadConversionId = recordLead({ email: formValues.email, phone: formValues.phone });
+          }
           HTMLFormElement.prototype.submit.call(form);
         } catch (navigationError) {
           if (error) {
@@ -297,7 +301,9 @@
         if (submitBtn) submitBtn.disabled = false;
         return;
       }
-      recordLead({ email: formValues.email, phone: formValues.phone });
+      if (!leadConversionId) {
+        leadConversionId = recordLead({ email: formValues.email, phone: formValues.phone });
+      }
       const success = document.querySelector(successSelector);
       if (success) {
         success.classList.add("show");
@@ -306,6 +312,7 @@
       form.reset();
       previousValues = "";
       submissionId = "";
+      leadConversionId = "";
       if (onSuccess) await onSuccess(leadDelivery);
       if (submitBtn) submitBtn.disabled = false;
     });

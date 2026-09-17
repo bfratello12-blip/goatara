@@ -549,7 +549,7 @@ test("blocked mobile AJAX falls back to the original native FormSubmit request w
   assert.equal(browser.fallbacks[0].values._cc, "bfratello@goatara.com,hmdodds@goatara.com,emdodds@goatara.com");
   for (const field of CRM_FIELDS_FOR_TEST()) assert.equal(browser.fallbacks[0].values[field], form[field]);
   assert.equal(browser.emailRelays.length, 0);
-  assert.equal(browser.conversions.length, 0);
+  assert.equal(browser.conversions.length, 1);
   assert.equal(browser.leadForm.hidden, false);
   assert.equal(browser.deliveries.length, 1);
   assert.equal(calls.length, 1);
@@ -569,12 +569,12 @@ test("failed native navigation retains answers for a retry without a duplicate C
   assert.equal(browser.window.document.querySelector("#qualifySuccess").classList.contains("show"), false);
   assert.equal(browser.leadForm.elements.namedItem("email").value, form.email);
   assert.equal(browser.fallbacks.length, 0);
-  assert.equal(browser.conversions.length, 0);
+  assert.equal(browser.conversions.length, 1);
   browser.window.HTMLFormElement.prototype.submit = nativeSubmit;
   await browser.send();
   assert.equal(browser.fallbacks.length, 1);
   assert.equal(browser.emailRelays.length, 0);
-  assert.equal(browser.conversions.length, 0);
+  assert.equal(browser.conversions.length, 1);
   assert.equal(browser.deliveries[0].payload.submission_id, browser.deliveries[1].payload.submission_id);
 });
 
@@ -603,6 +603,8 @@ test("static Vercel configuration includes the Node relay and its validation bui
   for (const page of ["index", "contact", "services", "how-it-works", "faq"]) {
     const dom = new JSDOM(readFileSync(join(__dirname, `../${page}.html`), "utf8"));
     assert.equal(dom.window.document.querySelectorAll('script[src="js/main.js"]').length, 1);
+    assert.equal(dom.window.document.documentElement.innerHTML.includes("a2_jiauuur40mwb"), true);
+    assert.equal(dom.window.document.documentElement.innerHTML.includes("a2_jhwp4a92xlgr"), false);
     const bookings = [...dom.window.document.querySelectorAll('a[href*="calendar.app.google"]')];
     assert.ok(bookings.length > 0);
     assert.ok(bookings.every(link => link.href === "https://calendar.app.google/UX3xX5r2br14W3nP7"));

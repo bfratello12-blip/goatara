@@ -2,6 +2,20 @@
 
 The local website project is `northbound` (workspace directory/package name: `northbound-commerce`). Its Vercel project is **`goatara`**, serving **https://goatara.com**. The separate CRM Vercel project is **`goatara-lead-tracker`**, serving **https://goatara-lead-tracker.vercel.app**. Do not configure the website integration variables in the CRM project or vice versa.
 
+## Reddit tracking
+
+The ad account error was caused by a pixel ID mismatch. The site was loading `a2_jhwp4a92xlgr`, while the Reddit ad account reported pixel `a2_jiauuur40mwb`. All website pages and the server-side CAPI example now use **`a2_jiauuur40mwb`**.
+
+In **Vercel project `goatara`**, set Production `REDDIT_PIXEL_ID=a2_jiauuur40mwb` and keep the existing server-only `REDDIT_CAPI_TOKEN`. Redeploy after changing it. The browser pixel and `/api/reddit-capi` must use the same pixel ID. Do not put the CAPI token in browser code.
+
+Lead tracking paths:
+
+- Successful AJAX form submission: one browser Reddit `Lead` event and one server CAPI event using the same conversion ID.
+- Native FormSubmit fallback: one browser/server Lead event is recorded before native navigation, using the same stable conversion ID on retries.
+- Phone and email links: delegated `tel:` and `mailto:` clicks record Lead events.
+
+The live script should contain `a2_jiauuur40mwb`, not `a2_jhwp4a92xlgr`. After deployment, verify PageVisit in Reddit Events Manager, then use the Reddit Pixel Helper or browser Network panel to confirm the pixel request and one Lead request on a form/phone test. Automated tests intercept Reddit calls and do not create ad conversions.
+
 ## Production diagnosis: September 16, 2026
 
 At inspection, website `main` and its local `origin/main` reference pointed to `eb8c680`. Its committed `api/save-lead.js` contained only Google Sheets delivery, no CRM fetch or CRM environment-variable lookup. That handler returned HTTP 200 even when Sheets was unconfigured or failed. A 200 response was therefore not evidence of CRM delivery.
