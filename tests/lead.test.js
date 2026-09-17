@@ -216,6 +216,67 @@ test("invalid, oversized and cross-origin requests cannot reach either upstream"
   assert.equal(calls.length, 0);
 });
 
+test("read-only relay diagnostics expose only configuration categories and a log correlation ID", async (testContext) => {
+  const { calls, logs } = setup(testContext);
+  const validUrl = "https://goatara-lead-tracker.vercel.app";
+  const validSecret = process.env.CRM_INTAKE_SECRET;
+  for (const [url, secret, category] of [
+    ["", validSecret, "missing_url"],
+    ["not-a-url", validSecret, "invalid_url"],
+    [validUrl, "", "missing_secret"],
+    [validUrl, "invalid-private-secret", "invalid_secret"],
+    [validUrl, validSecret, "valid_format"],
+  ]) {
+    process.env.CRM_INTAKE_URL = url;
+    process.env.CRM_INTAKE_SECRET = secret;
+    const response = await submit(form, { method: "GET" });
+    assert.equal(response.statusCode, 405);
+    assert.equal(response.headers["x-goatara-crm-config"], category);
+    assert.match(response.headers["x-goatara-delivery-id"], /^[a-f0-9-]{36}$/);
+    assert.equal(deliveryLogs(logs).at(-1).deliveryId, response.headers["x-goatara-delivery-id"]);
+    assert.equal(deliveryLogs(logs).at(-1).attempted, false);
+    const serialized = JSON.stringify(response);
+    for (const value of [url, secret, form.email, form.phone, form.submission_id].filter(Boolean)) {
+      assert.equal(serialized.includes(value), false);
+    }
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("production hostname aliases do not reject legitimate Goatara lead requests", async (testContext) => {
+  const { calls } = setup(testContext, { NODE_ENV: "production" });
+  for (const [origin, host] of [
+    ["https://goatara.com", "www.goatara.com"],
+    ["https://www.goatara.com", "goatara.com"],
+  ]) {
+    const response = await submit(form, { headers: {
+      "content-type": "application/json", origin, host, "sec-fetch-site": "same-site",
+    } });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.ok, true);
+  }
+  assert.equal(calls.length, 2);
+});
+
+test("hostname aliases do not allow untrusted or cross-site origins", async (testContext) => {
+  const { calls } = setup(testContext, { NODE_ENV: "production" });
+  for (const [origin, host, fetchSite] of [
+    ["https://goatara.com.evil.test", "www.goatara.com", "same-site"],
+    ["https://www.goatara.com.evil.test", "goatara.com", "same-site"],
+    ["https://untrusted.example", "www.goatara.com", "same-site"],
+    ["http://goatara.com", "www.goatara.com", "same-site"],
+    ["https://goatara.com", "untrusted.example", "same-site"],
+    ["https://goatara.com", "www.goatara.com", "cross-site"],
+    ["null", "www.goatara.com", "same-site"],
+  ]) {
+    const response = await submit(form, { headers: {
+      "content-type": "application/json", origin, host, "sec-fetch-site": fetchSite,
+    } });
+    assert.equal(response.statusCode, 403);
+  }
+  assert.equal(calls.length, 0);
+});
+
 test("public CRM URLs require HTTPS and secrets cannot be sent to URL credentials or redirects", async (testContext) => {
   const { calls } = setup(testContext);
   for (const url of ["http://crm.example.test", "https://user:password@crm.example.test", "not-a-url"]) {

@@ -4,6 +4,7 @@ const { randomUUID } = require("node:crypto");
 const MAX_STRING_LENGTH = 2048;
 const MAX_BODY_BYTES = 64 * 1024;
 const CRM_INTAKE_PATH = "/api/intake/leads";
+const WEBSITE_HOSTS = new Set(["goatara.com", "www.goatara.com"]);
 
 const FIELDS = [
   "current_stage",
@@ -114,14 +115,9 @@ function requestErrorCategory(error) {
   return "network";
 }
 
-async function saveToCrm(payload, submissionId, diagnostic) {
-  const finish = (result, category, status = null) => {
-    logCrmDelivery(diagnostic, "complete", { outcome: result.ok ? "success" : "failure", category, status });
-    return result;
-  };
-  const notConfigured = category => finish({ ok: false, status: 503, error: "CRM is not configured" }, category);
+function crmConfiguration() {
   const configuredUrl = process.env.CRM_INTAKE_URL?.trim();
-  if (!configuredUrl) return notConfigured("missing_url");
+  if (!configuredUrl) return { category: "missing_url" };
   let endpoint;
   try {
     const base = new URL(configuredUrl);
@@ -129,19 +125,31 @@ async function saveToCrm(payload, submissionId, diagnostic) {
       ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname);
     if ((!localHttp && base.protocol !== "https:") || base.username || base.password ||
       base.search || base.hash || !["", CRM_INTAKE_PATH].includes(base.pathname.replace(/\/+$/, ""))) {
-      return notConfigured("invalid_url");
+      return { category: "invalid_url" };
     }
     endpoint = new URL(CRM_INTAKE_PATH, base);
   } catch {
-    return notConfigured("invalid_url");
+    return { category: "invalid_url" };
   }
-  diagnostic.hostname = endpoint.hostname;
   const secret = process.env.CRM_INTAKE_SECRET;
-  if (!secret) return notConfigured("missing_secret");
-  if (secret.length < 32 || !/^[\x21-\x7e]+$/.test(secret)) return notConfigured("invalid_secret");
+  if (!secret) return { endpoint, category: "missing_secret" };
+  if (secret.length < 32 || !/^[\x21-\x7e]+$/.test(secret)) return { endpoint, category: "invalid_secret" };
   const protectionBypass = process.env.CRM_VERCEL_PROTECTION_BYPASS;
   if (protectionBypass && !/^[\x21-\x7e]+$/.test(protectionBypass)) {
-    return notConfigured("invalid_protection_bypass");
+    return { endpoint, category: "invalid_protection_bypass" };
+  }
+  return { endpoint, secret, protectionBypass, category: "valid_format" };
+}
+
+async function saveToCrm(payload, submissionId, diagnostic, configuration) {
+  const finish = (result, category, status = null) => {
+    logCrmDelivery(diagnostic, "complete", { outcome: result.ok ? "success" : "failure", category, status });
+    return result;
+  };
+  const { endpoint, secret, protectionBypass, category } = configuration;
+  diagnostic.hostname = endpoint?.hostname ?? null;
+  if (category !== "valid_format") {
+    return finish({ ok: false, status: 503, error: "CRM is not configured" }, category);
   }
 
   const headers = {
@@ -199,7 +207,10 @@ async function saveToCrm(payload, submissionId, diagnostic) {
 module.exports = async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("X-Goatara-Lead-Relay", "crm-v1");
+  const configuration = crmConfiguration();
+  res.setHeader("X-Goatara-CRM-Config", configuration.category);
   const diagnostic = { deliveryId: randomUUID(), attempted: false, hostname: null, path: CRM_INTAKE_PATH, attempt: 0 };
+  res.setHeader("X-Goatara-Delivery-Id", diagnostic.deliveryId);
   const reject = (status, error, category) => {
     logCrmDelivery(diagnostic, "complete", { outcome: "failure", category });
     return res.status(status).json({ error });
@@ -212,8 +223,11 @@ module.exports = async function handler(req, res) {
     return reject(415, "Send a JSON body", "content_type");
   }
   try {
+    const origin = req.headers?.origin ? new URL(req.headers.origin) : null;
+    const trustedAlias = origin?.protocol === "https:" && WEBSITE_HOSTS.has(origin.host) &&
+      WEBSITE_HOSTS.has(req.headers?.host);
     if (req.headers?.["sec-fetch-site"] === "cross-site" ||
-      (req.headers?.origin && new URL(req.headers.origin).host !== req.headers.host)) {
+      (origin && origin.host !== req.headers.host && !trustedAlias)) {
       return reject(403, "Origin not allowed", "origin");
     }
   } catch {
@@ -246,6 +260,6 @@ module.exports = async function handler(req, res) {
     }
     payload[crmField] = value || null;
   }
-  const [crm] = await Promise.all([saveToCrm(payload, submissionId, diagnostic), saveToSheets(body)]);
+  const [crm] = await Promise.all([saveToCrm(payload, submissionId, diagnostic, configuration), saveToSheets(body)]);
   return res.status(crm.status).json({ ok: crm.ok, submissionId, ...(crm.error ? { error: crm.error } : {}) });
 };
