@@ -87,6 +87,44 @@ async function saveToSheets(body) {
   }
 }
 
+async function sendLeadEmail(body, deliveryId) {
+  const payload = Object.fromEntries(CRM_FIELDS.map(([field]) => [field, (body[field] || "").trim()]));
+  Object.assign(payload, {
+    _subject: "New partnership application \u2014 Goatara",
+    _template: "table",
+    _cc: "bfratello@goatara.com,hmdodds@goatara.com,emdodds@goatara.com",
+    _honey: "",
+  });
+  try {
+    const response = await fetch("https://formsubmit.co/ajax/contact@goatara.com", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Origin: "https://www.goatara.com",
+        Referer: "https://www.goatara.com/",
+      },
+      body: JSON.stringify(payload),
+      redirect: "error",
+      signal: AbortSignal.timeout(10000),
+    });
+    const receipt = response.ok ? await response.json().catch(() => null) : null;
+    if (response.ok && (receipt?.success === true || receipt?.success === "true")) {
+      console.info("Lead email delivery", { deliveryId, status: response.status, outcome: "success" });
+      return { ok: true, status: 200 };
+    }
+    await response.body?.cancel().catch(() => {});
+    console.error("Lead email delivery", {
+      deliveryId, status: response.status, category: "provider_rejected", outcome: "failure",
+    });
+  } catch (error) {
+    console.error("Lead email delivery", {
+      deliveryId, category: requestErrorCategory(error), outcome: "failure",
+    });
+  }
+  return { ok: false, status: 502, error: "Email delivery failed" };
+}
+
 function logCrmDelivery(diagnostic, event, details = {}) {
   const record = { ...diagnostic, event, status: null, category: null, ...details };
   if (record.category && record.category !== "accepted") console.error("CRM lead delivery", record);
@@ -259,6 +297,10 @@ module.exports = async function handler(req, res) {
       return reject(400, `Invalid ${field}`, "invalid_fields");
     }
     payload[crmField] = value || null;
+  }
+  if (body.delivery === "email") {
+    const email = await sendLeadEmail(body, diagnostic.deliveryId);
+    return res.status(email.status).json({ ok: email.ok, delivery: "email", submissionId, ...(email.error ? { error: email.error } : {}) });
   }
   const [crm] = await Promise.all([saveToCrm(payload, submissionId, diagnostic, configuration), saveToSheets(body)]);
   return res.status(crm.status).json({ ok: crm.ok, submissionId, ...(crm.error ? { error: crm.error } : {}) });

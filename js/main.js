@@ -179,11 +179,12 @@
     };
   }
 
-  function saveLead(formValues) {
+  function saveLead(formValues, submissionId) {
+    let timeout;
     try {
       const payload = Object.assign(
         {
-          submission_id: generateConversionId(),
+          submission_id: submissionId,
           _honey: formValues._honey || "",
           current_stage: formValues.current_stage || "",
           store_url: formValues.store_url || "",
@@ -202,22 +203,61 @@
         getUtmParams()
       );
 
+      const controller = new AbortController();
+      timeout = setTimeout(() => controller.abort(), 20000);
       const request = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
         keepalive: true,
+        signal: controller.signal,
       };
-      fetch("/api/save-lead", request)
+      return fetch("/api/save-lead", request)
         .catch(() => fetch("/api/save-lead", request))
-        .catch(() => {});
-    } catch (err) {}
+        .catch(() => {})
+        .finally(() => clearTimeout(timeout));
+    } catch (err) {
+      clearTimeout(timeout);
+      return Promise.resolve();
+    }
+  }
+
+  async function postFormJson(endpoint, payload, timeoutMs) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error("Submission failed");
+      return await response.json();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async function sendLeadEmail(endpoint, formValues, submissionId) {
+    try {
+      const receipt = await postFormJson(endpoint, formValues, 8000);
+      if (receipt.success !== true && receipt.success !== "true") throw new Error("Email not accepted");
+    } catch (err) {
+      const receipt = await postFormJson("/api/save-lead", Object.assign({}, formValues, {
+        submission_id: submissionId,
+        delivery: "email",
+      }), 15000);
+      if (!receipt.ok) throw new Error("Email not accepted");
+    }
   }
 
   /* Forms — deliver submissions via email (FormSubmit) */
   function wireEmailForm(form, successSelector, onSuccess, collectLead) {
     if (!form) return;
-    form.addEventListener("submit", (e) => {
+    let previousValues = "";
+    let submissionId = "";
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
       if (!form.checkValidity()) {
         form.reportValidity();
@@ -240,35 +280,42 @@
       if (submitBtn) submitBtn.disabled = true;
 
       const formValues = Object.fromEntries(new FormData(form).entries());
-      if (collectLead) saveLead(formValues);
+      const serializedValues = JSON.stringify(formValues);
+      if (serializedValues !== previousValues) {
+        previousValues = serializedValues;
+        submissionId = generateConversionId();
+      }
+      const leadDelivery = collectLead ? saveLead(formValues, submissionId) : Promise.resolve();
+      const error = form.querySelector(".form-error");
+      if (error) error.hidden = true;
 
-      fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(formValues),
-      })
-        .then((res) => {
-          if (!res.ok) throw new Error("Submission failed");
-          recordLead({ email: formValues.email, phone: formValues.phone });
-          const success = document.querySelector(successSelector);
-          if (success) {
-            success.classList.add("show");
-            success.scrollIntoView({ behavior: "smooth", block: "center" });
-          }
-          form.reset();
-          if (onSuccess) onSuccess();
-        })
-        .catch(() => {
-          // Fall back to a normal form submission if the AJAX request fails.
-          HTMLFormElement.prototype.submit.call(form);
-        })
-        .finally(() => {
-          if (submitBtn) submitBtn.disabled = false;
-        });
+      try {
+        await sendLeadEmail(endpoint, formValues, submissionId);
+      } catch (err) {
+        if (error) {
+          error.hidden = false;
+          error.focus();
+          error.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        if (submitBtn) submitBtn.disabled = false;
+        return;
+      }
+      recordLead({ email: formValues.email, phone: formValues.phone });
+      const success = document.querySelector(successSelector);
+      if (success) {
+        success.classList.add("show");
+        success.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      form.reset();
+      previousValues = "";
+      submissionId = "";
+      if (onSuccess) await onSuccess(leadDelivery);
+      if (submitBtn) submitBtn.disabled = false;
     });
   }
 
   const BOOKING_HOST = "calendar.app.google";
+  const BOOKING_URL = "https://calendar.app.google/UX3xX5r2br14W3nP7";
 
   function bookingModalMarkup() {
     return `<div class="modal" id="qualifyModal" aria-hidden="true">
@@ -286,6 +333,7 @@
       <div class="form-success" id="qualifySuccess" tabindex="-1" role="status">
         <p><b>Got it &mdash; your details are on their way to us.</b></p>
         <p>We'll review your business details and get back to you within one business day.</p>
+        <a href="${BOOKING_URL}" class="btn btn--primary" data-calendar-direct hidden>Choose a Call Time</a>
       </div>
 
       <form class="qualify-form" id="qualifyForm" action="https://formsubmit.co/contact@goatara.com" method="POST" novalidate>
@@ -390,6 +438,7 @@
           </div>
         </div>
 
+        <p class="form-error" role="alert" tabindex="-1" hidden>We couldn't send your request. Your answers are still here. Please try again.</p>
         <button type="submit" class="btn btn--primary btn--block btn--lg">Submit My Details</button>
         <p class="form-note">By submitting, you agree to be contacted about a Goatara partnership. No spam, ever.</p>
       </form>
@@ -405,8 +454,19 @@
   const bookingForm = bookingModal.querySelector("#qualifyForm");
   const leadSuccess = bookingModal.querySelector("#qualifySuccess");
   let lastFocused = null;
+  let bookAfterSubmit = false;
+  let completedLeadDelivery = Promise.resolve();
 
-  const openBookingModal = () => {
+  const openBookingModal = (booking = false) => {
+    bookAfterSubmit = booking;
+    bookingForm.querySelector('button[type="submit"]').textContent = booking
+      ? "Submit & Choose a Call Time" : "Submit My Details";
+    const calendarLink = bookingModal.querySelector("[data-calendar-direct]");
+    calendarLink.hidden = !booking;
+    if (booking && bookingForm.hidden) {
+      void completedLeadDelivery.then(() => window.location.assign(BOOKING_URL));
+      return;
+    }
     lastFocused = document.activeElement;
     bookingModal.classList.add("open");
     bookingModal.setAttribute("aria-hidden", "false");
@@ -421,7 +481,9 @@
     if (lastFocused) lastFocused.focus();
   };
 
-  document.querySelectorAll("[data-open-qualify]").forEach((b) => b.addEventListener("click", openBookingModal));
+  document.querySelectorAll("[data-open-qualify]").forEach((button) => button.addEventListener("click", () => {
+    openBookingModal(button.hasAttribute("data-book-call"));
+  }));
   bookingModal.querySelectorAll("[data-close-qualify]").forEach((c) => c.addEventListener("click", closeBookingModal));
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && bookingModal.classList.contains("open")) closeBookingModal();
@@ -430,7 +492,8 @@
   wireEmailForm(
     bookingForm,
     "#qualifySuccess",
-    () => {
+    async (leadDelivery) => {
+      completedLeadDelivery = leadDelivery;
       bookingForm.hidden = true;
       const eyebrow = bookingModal.querySelector(".modal__head .eyebrow");
       const title = bookingModal.querySelector("#qualifyTitle");
@@ -439,6 +502,10 @@
       if (title) title.textContent = "Your details have been sent";
       if (intro) intro.remove();
       if (leadSuccess) leadSuccess.focus();
+      if (bookAfterSubmit) {
+        await leadDelivery;
+        window.location.assign(BOOKING_URL);
+      }
     },
     true
   );
@@ -453,9 +520,10 @@
     if (!link) return;
     const href = link.getAttribute("href") || "";
 
+    if (link.hasAttribute("data-calendar-direct")) return;
     if (link.hostname === BOOKING_HOST) {
       e.preventDefault();
-      openBookingModal();
+      openBookingModal(true);
       return;
     }
 

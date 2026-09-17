@@ -785,6 +785,15 @@ img { max-width: 100%; display: block; }
 .form-success.show { display: block; }
 .form-success p { color: inherit; margin: 0 0 6px; }
 .form-success .btn { margin-top: 12px; }
+.form-success [hidden] { display: none; }
+.form-error {
+  padding: 12px 14px;
+  border: 1px solid #e3b3ae;
+  border-radius: 6px;
+  color: #8b2922;
+  background: #fff3f1;
+  font-size: 0.9rem;
+}
 
 /* ---------- Footer ---------- */
 .site-footer {
@@ -940,8 +949,14 @@ body.modal-open { overflow: hidden; }
 
 @media (max-width: 760px) {
   body { font-size: 16px; }
-  .nav__links, .nav__cta .btn:not(.nav__call) { display: none; }
-  .nav__toggle { display: flex; }
+  .nav { gap: 8px; }
+  .nav > .brand { flex: 0 1 120px; min-width: 0; }
+  .nav .brand__logo { width: 100%; height: auto; max-height: 34px; }
+  .nav__links, .nav__cta .btn:not(.nav__call):not(.nav__book) { display: none; }
+  .nav__cta { gap: 6px; flex-shrink: 0; }
+  .nav__cta .nav__book { min-height: 44px; padding: 10px 12px; font-size: 0.8125rem; letter-spacing: 0; white-space: nowrap; }
+  .nav__call.btn--icon { width: 40px; height: 44px; padding: 10px; }
+  .nav__toggle { display: flex; width: 40px; flex-shrink: 0; }
   .nav.open .nav__links {
     display: flex;
     position: absolute;
@@ -968,4 +983,10 @@ body.modal-open { overflow: hidden; }
   .mini-stats { grid-template-columns: 1fr 1fr; }
   .announce { padding: 9px 0; }
   .announce p { font-size: 0.85rem; }
+}
+
+@media (max-width: 360px) {
+  .nav > .brand { flex-basis: 78px; }
+  .nav__cta { gap: 4px; }
+  .nav__cta .nav__book { padding: 10px 8px; font-size: 0.75rem; }
 }
