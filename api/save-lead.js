@@ -7,6 +7,7 @@ const CRM_INTAKE_PATH = "/api/intake/leads";
 const WEBSITE_HOSTS = new Set(["goatara.com", "www.goatara.com"]);
 
 const FIELDS = [
+  "ships_from_us",
   "current_stage",
   "store_url",
   "product_category",
@@ -262,6 +263,13 @@ module.exports = async function handler(req, res) {
   }
   if (body.delivery === "email") {
     return res.status(410).json({ ok: false, delivery: "email", error: "Refresh the page and try again." });
+  }
+  // Partnerships require orders to ship from within the United States; ineligible answers never reach the CRM or Sheets.
+  if (body.ships_from_us === "No") {
+    return reject(422, "Orders must ship from within the United States", "ineligible_shipping_origin");
+  }
+  if (body.ships_from_us !== "Yes") {
+    return reject(400, "Invalid ships_from_us", "invalid_fields");
   }
   const [crm] = await Promise.all([saveToCrm(payload, submissionId, diagnostic, configuration), saveToSheets(body)]);
   return res.status(crm.status).json({ ok: crm.ok, submissionId, ...(crm.error ? { error: crm.error } : {}) });

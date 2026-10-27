@@ -186,6 +186,7 @@
         {
           submission_id: submissionId,
           _honey: formValues._honey || "",
+          ships_from_us: formValues.ships_from_us || "",
           current_stage: formValues.current_stage || "",
           store_url: formValues.store_url || "",
           product_category: formValues.product_category || "",
@@ -244,14 +245,61 @@
     if (receipt.success !== true && receipt.success !== "true") throw new Error("Email not accepted");
   }
 
+  /* Shipping-origin qualification — partnerships require orders to ship from within the United States */
+  const SHIPPING_ORIGIN_FIELD = "ships_from_us";
+  const INELIGIBLE_MESSAGE =
+    "Thanks for your interest in Goatara. We currently partner only with businesses whose orders ship from within the United States. If you establish U.S. fulfillment in the future, we'd love to hear from you.";
+
+  function wireShippingQualification(form) {
+    const details = form.querySelector("[data-qualify-details]");
+    const notice = form.querySelector("[data-qualify-notice]");
+    const answer = () => {
+      const checked = form.querySelector(`input[name="${SHIPPING_ORIGIN_FIELD}"]:checked`);
+      return checked ? checked.value : "";
+    };
+    const sync = () => {
+      const value = answer();
+      if (details) details.hidden = value !== "Yes";
+      if (!notice) return;
+      // The live region stays in the DOM; inserting text is what screen readers announce.
+      if (value === "No" && !notice.firstChild) {
+        const message = document.createElement("p");
+        message.textContent = INELIGIBLE_MESSAGE;
+        notice.appendChild(message);
+      } else if (value !== "No") {
+        notice.textContent = "";
+      }
+    };
+    form.addEventListener("change", (e) => {
+      if (e.target && e.target.name === SHIPPING_ORIGIN_FIELD) sync();
+    });
+    form.addEventListener("reset", () => setTimeout(sync, 0));
+    sync();
+    return {
+      sync,
+      isEligible: () => answer() === "Yes",
+      reportUnanswered() {
+        const first = form.querySelector(`input[name="${SHIPPING_ORIGIN_FIELD}"]`);
+        if (!answer() && first) first.reportValidity();
+      },
+    };
+  }
+
   /* Forms — deliver submissions via email (FormSubmit) */
-  function wireEmailForm(form, successSelector, onSuccess, collectLead) {
+  function wireEmailForm(form, successSelector, onSuccess, collectLead, qualification) {
     if (!form) return;
     let previousValues = "";
     let submissionId = "";
     let leadConversionId = "";
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (qualification) {
+        qualification.sync();
+        if (!qualification.isEligible()) {
+          qualification.reportUnanswered();
+          return;
+        }
+      }
       if (!form.checkValidity()) {
         form.reportValidity();
         return;
@@ -332,6 +380,7 @@
         <span class="eyebrow">Partnership enquiry</span>
         <h2 id="qualifyTitle">Tell us about your business</h2>
         <p>Tell us what you sell and we'll be in touch about whether a Goatara partnership is a fit.</p>
+        <p class="eligibility-note">We currently partner only with businesses shipping orders from within the USA.</p>
       </div>
 
       <div class="form-success" id="qualifySuccess" tabindex="-1" role="status">
@@ -347,6 +396,18 @@
         <input type="hidden" name="_next" value="${BOOKING_URL}" disabled />
         <input type="text" name="_honey" style="display:none" tabindex="-1" autocomplete="off" />
 
+        <fieldset class="choice-group" aria-describedby="q_ships_help">
+          <legend>Will orders from the Shopify store we manage ship from within the United States?</legend>
+          <p class="field__help" id="q_ships_help">This refers to where orders are dispatched, including your own location or a fulfillment partner's warehouse.</p>
+          <div class="choice-options">
+            <label class="choice"><input type="radio" id="q_ships_yes" name="${SHIPPING_ORIGIN_FIELD}" value="Yes" required /> Yes</label>
+            <label class="choice"><input type="radio" id="q_ships_no" name="${SHIPPING_ORIGIN_FIELD}" value="No" required /> No</label>
+          </div>
+        </fieldset>
+
+        <div class="form-ineligible" data-qualify-notice role="status" aria-live="polite"></div>
+
+        <div class="qualify-form__details" data-qualify-details hidden>
         <div class="field">
           <label for="q_stage">Where are you at right now?</label>
           <select id="q_stage" name="current_stage" required>
@@ -446,6 +507,7 @@
         <p class="form-error" role="alert" tabindex="-1" hidden>We couldn't send your request. Your answers are still here. Please try again.</p>
         <button type="submit" class="btn btn--primary btn--block btn--lg">Submit My Details</button>
         <p class="form-note">By submitting, you agree to be contacted about a Goatara partnership. No spam, ever.</p>
+        </div>
       </form>
     </div>
   </div>`;
@@ -458,6 +520,7 @@
 
   const bookingForm = bookingModal.querySelector("#qualifyForm");
   const leadSuccess = bookingModal.querySelector("#qualifySuccess");
+  const shippingQualification = wireShippingQualification(bookingForm);
   let lastFocused = null;
   let bookAfterSubmit = false;
   let completedLeadDelivery = Promise.resolve();
@@ -477,7 +540,7 @@
     bookingModal.classList.add("open");
     bookingModal.setAttribute("aria-hidden", "false");
     document.body.classList.add("modal-open");
-    const target = bookingForm.hidden ? leadSuccess : bookingModal.querySelector("#q_stage");
+    const target = bookingForm.hidden ? leadSuccess : bookingModal.querySelector("#q_ships_yes");
     if (target) target.focus();
   };
   const closeBookingModal = () => {
@@ -503,17 +566,17 @@
       bookingForm.hidden = true;
       const eyebrow = bookingModal.querySelector(".modal__head .eyebrow");
       const title = bookingModal.querySelector("#qualifyTitle");
-      const intro = bookingModal.querySelector(".modal__head p");
       if (eyebrow) eyebrow.textContent = "Thank you";
       if (title) title.textContent = "Your details have been sent";
-      if (intro) intro.remove();
+      bookingModal.querySelectorAll(".modal__head p").forEach((intro) => intro.remove());
       if (leadSuccess) leadSuccess.focus();
       if (bookAfterSubmit) {
         await leadDelivery;
         window.location.assign(BOOKING_URL);
       }
     },
-    true
+    true,
+    shippingQualification
   );
 
   /* Footer year */

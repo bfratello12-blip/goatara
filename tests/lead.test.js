@@ -7,6 +7,7 @@ const handler = require("../api/save-lead.js");
 
 const form = {
   submission_id: "fd69cfe0-6a1c-4f16-94a0-fbcc09379b90",
+  ships_from_us: "Yes",
   current_stage: "I sell on Amazon or another marketplace",
   store_url: "https://example.test/products",
   product_category: "Home goods",
@@ -133,9 +134,29 @@ test("existing Sheets delivery continues independently of CRM configuration", as
   const payload = JSON.parse(calls[0].options.body);
   assert.equal(payload.secret, process.env.GOATARA_SHEETS_SECRET);
   assert.equal(payload.name, form.name);
+  assert.equal(payload.ships_from_us, "Yes");
   assert.equal(payload.page_url, "existing-page");
   assert.equal(payload.utm_source, "existing-value");
   assert.equal("submission_id" in payload, false);
+});
+
+test("leads whose orders do not ship from the United States never reach the CRM or Sheets", async (testContext) => {
+  const { calls, logs } = setup(testContext, {
+    GOATARA_SHEETS_URL: "https://sheets.example.test/submit",
+    GOATARA_SHEETS_SECRET: "test-only-sheets-secret",
+  });
+  const declined = await submit({ ...form, ships_from_us: "No" });
+  assert.equal(declined.statusCode, 422);
+  assert.equal(declined.body.error, "Orders must ship from within the United States");
+  assert.equal(deliveryLogs(logs).at(-1)?.category, "ineligible_shipping_origin");
+  const { ships_from_us, ...unanswered } = form;
+  for (const body of [unanswered, { ...form, ships_from_us: "" }, { ...form, ships_from_us: "yes" }, { ...form, ships_from_us: true }]) {
+    const response = await submit(body);
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.body.error, "Invalid ships_from_us");
+  }
+  assert.equal(calls.length, 0);
+  assert.equal(JSON.stringify(logs).includes(form.email), false);
 });
 
 test("CRM still succeeds when Sheets fails", async (testContext) => {
@@ -588,6 +609,88 @@ test("the real form still rejects invalid required fields before email or CRM de
   assert.equal(browser.fallbacks.length, 0);
   assert.equal(calls.length, 0);
   assert.equal(browser.window.document.querySelector("#qualifySuccess").classList.contains("show"), false);
+});
+
+const INELIGIBLE_MESSAGE = "Thanks for your interest in Goatara. We currently partner only with businesses whose orders ship from within the United States. If you establish U.S. fulfillment in the future, we'd love to hear from you.";
+
+test("the shipping-origin question gates the real form through unanswered, No and Yes states", async (testContext) => {
+  const { calls } = setup(testContext);
+  const browser = emailForm(testContext);
+  const { leadForm, window } = browser;
+  const details = leadForm.querySelector("[data-qualify-details]");
+  const notice = leadForm.querySelector("[data-qualify-notice]");
+  const fieldset = leadForm.querySelector("fieldset.choice-group");
+  const radios = [...leadForm.querySelectorAll('input[type="radio"][name="ships_from_us"]')];
+  const choose = value => {
+    const radio = radios.find(option => option.value === value);
+    radio.checked = true;
+    radio.dispatchEvent(new window.Event("change", { bubbles: true }));
+  };
+  const sent = () => browser.emails.length + browser.deliveries.length + browser.fallbacks.length +
+    browser.conversions.length + browser.beacons.length + calls.length;
+
+  assert.equal(leadForm.querySelector("fieldset.choice-group, .field"), fieldset);
+  assert.equal(fieldset.querySelector("legend").textContent,
+    "Will orders from the Shopify store we manage ship from within the United States?");
+  assert.equal(window.document.getElementById(fieldset.getAttribute("aria-describedby")).textContent,
+    "This refers to where orders are dispatched, including your own location or a fulfillment partner's warehouse.");
+  assert.deepEqual(radios.map(radio => [radio.value, radio.defaultChecked, radio.required]), [["Yes", false, true], ["No", false, true]]);
+  assert.equal(radios.every(radio => leadForm.querySelector(`label[for="${radio.id}"]`) || radio.closest("label")), true);
+  assert.equal(notice.getAttribute("role"), "status");
+  assert.equal(notice.getAttribute("aria-live"), "polite");
+  assert.equal(details.contains(leadForm.querySelector('button[type="submit"]')), true);
+
+  radios.forEach(radio => { radio.checked = false; });
+  await browser.send();
+  assert.equal(details.hidden, true);
+  assert.equal(notice.textContent, "");
+  assert.equal(sent(), 0);
+
+  choose("No");
+  assert.equal(details.hidden, true);
+  assert.equal(notice.textContent, INELIGIBLE_MESSAGE);
+  assert.equal(fieldset.hidden, false);
+  await browser.send();
+  assert.equal(sent(), 0);
+  assert.equal(window.document.querySelector("#qualifySuccess").classList.contains("show"), false);
+
+  choose("Yes");
+  assert.equal(details.hidden, false);
+  assert.equal(notice.textContent, "");
+  assert.equal(leadForm.elements.namedItem("email").value, form.email);
+  choose("No");
+  assert.equal(details.hidden, true);
+  assert.equal(notice.textContent, INELIGIBLE_MESSAGE);
+  await browser.send();
+  assert.equal(sent(), 0);
+
+  choose("Yes");
+  await browser.send();
+  assert.equal(browser.emails.length, 1);
+  assert.equal(browser.emails[0].payload.ships_from_us, "Yes");
+  assert.equal(browser.deliveries.length, 1);
+  assert.equal(browser.deliveries[0].payload.ships_from_us, "Yes");
+  assert.equal(calls.length, 1);
+  assert.equal(window.document.querySelector("#qualifySuccess").classList.contains("show"), true);
+  assert.equal(radios.some(radio => radio.checked), false);
+  assert.deepEqual(browser.browserErrors, []);
+});
+
+test("site copy states the U.S. shipping-origin requirement where visitors qualify and book", () => {
+  const page = name => new JSDOM(readFileSync(join(__dirname, `../${name}.html`), "utf8")).window.document;
+  const home = page("index");
+  const fit = home.querySelector(".hero [data-open-qualify]");
+  assert.match(fit.textContent, /Check If You're a Fit/);
+  assert.equal(fit.closest(".btn-row").nextElementSibling.textContent, "For businesses shipping orders from within the USA.");
+  assert.match(home.querySelector(".cost-note").textContent, /only real requirements:.*ship from within the United States/);
+  const faq = page("faq");
+  const answers = new Map([...faq.querySelectorAll(".faq-item")].map(item =>
+    [item.querySelector(".faq-q").textContent.trim(), item.querySelector(".faq-a").textContent.trim()]));
+  assert.equal(answers.get("Do orders need to ship from the USA?"), "Yes. Orders from the Shopify store we manage must ship from within the United States, whether you fulfill them yourself or use a fulfillment partner. This requirement concerns where orders ship from, rather than where your business is based.");
+  assert.match(answers.get("Who handles shipping?"), /orders must ship from within the United States/);
+  const contact = page("contact");
+  assert.equal(contact.querySelector("#contactForm .eligibility-note").textContent,
+    "We currently partner only with businesses shipping orders from within the USA.");
 });
 
 test("static Vercel configuration includes the Node relay and its validation build", () => {

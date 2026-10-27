@@ -81,6 +81,7 @@ Automated tests simulate unreachable FormSubmit in mobile WebKit and intercept e
 
 | Existing form question | Website field | CRM field |
 | --- | --- | --- |
+| Will orders from the Shopify store we manage ship from within the United States? | `ships_from_us` | Not forwarded (relay requires `Yes`) |
 | Where are you at right now? | `current_stage` | `currentSituation` |
 | Link to your store, listings, or products | `store_url` | `storeUrl` |
 | What do you sell? | `product_category` | `products` |
@@ -94,6 +95,12 @@ Automated tests simulate unreachable FormSubmit in mobile WebKit and intercept e
 | Phone | `phone` | `phone` |
 
 Business name, store URL and product count remain optional. Blank optional values become `null`; without a business name the CRM uses `Unconfirmed - Full Name`. Store URLs support bare domains but must be valid HTTP(S) URLs. CRM field limits are enforced without silently truncating lead details; existing Sheets sanitization remains separate.
+
+## U.S. shipping-origin requirement
+
+Goatara partners only with businesses whose Shopify orders ship from within the United States. The first form question is a required Yes/No radio group (`ships_from_us`, no default answer). Until **Yes** is selected, the remaining fields and submit button stay hidden. **No** shows the decline message in a polite live region and blocks submission, so no FormSubmit email, CRM/Sheets relay, Lead conversion or calendar navigation happens. The question stays visible so visitors can change their answer. This gate lives in `wireShippingQualification` and is passed to `wireEmailForm`, so enquiry and Book a Call modes share it.
+
+Successful submissions include `ships_from_us: Yes` in the FormSubmit email and in the `/api/save-lead` payload, which forwards it to Sheets. The relay rejects `No` with `422` (`ineligible_shipping_origin`) and a missing or unexpected value with `400`, before any CRM or Sheets request. The CRM intake schema has no shipping-origin field, so the answer is not forwarded there; every CRM lead has passed this check.
 
 ## Vercel environment variables
 

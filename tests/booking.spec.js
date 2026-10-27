@@ -6,7 +6,10 @@ const { resolve, extname, sep } = require("node:path");
 const handler = require("../api/save-lead.js");
 
 const calendarUrl = "https://calendar.app.google/UX3xX5r2br14W3nP7";
+const ineligibleMessage =
+  "Thanks for your interest in Goatara. We currently partner only with businesses whose orders ship from within the United States. If you establish U.S. fulfillment in the future, we'd love to hear from you.";
 const values = {
+  ships_from_us: "Yes",
   current_stage: "I sell on Amazon or another marketplace",
   store_url: "https://booking.example.test",
   product_category: "Home goods",
@@ -120,7 +123,9 @@ async function fillForm(page) {
   const form = page.locator("#qualifyForm");
   for (const [name, value] of Object.entries(values)) {
     const field = form.locator(`[name="${name}"]`);
-    if (["current_stage", "revenue_range", "fulfillment_method", "launch_timeline"].includes(name)) {
+    if (name === "ships_from_us") {
+      await form.getByRole("radio", { name: value, exact: true }).check();
+    } else if (["current_stage", "revenue_range", "fulfillment_method", "launch_timeline"].includes(name)) {
       await field.selectOption({ label: value });
     } else await field.fill(value);
   }
@@ -292,10 +297,96 @@ test.describe("booking", () => {
       expect(await logo.evaluate((image) => image.complete && image.naturalWidth > 0)).toBe(true);
       await page.locator(".site-header").screenshot({ path: testInfo.outputPath(`header-${width}.png`) });
       await booking.click();
+      await expect(page.locator('#qualifyForm button[type="submit"]')).toBeHidden();
+      await page.locator("#qualifyForm").getByRole("radio", { name: "Yes", exact: true }).check();
       await page.locator('#qualifyForm button[type="submit"]').click();
       await expect(page.locator("#qualifyForm")).toBeVisible();
       expect(site.crmCalls).toHaveLength(0);
       expect(site.directEmails).toHaveLength(0);
     }
   });
+
+  for (const action of [
+    { name: "homepage Check If You're a Fit", path: "/", selector: ".hero [data-open-qualify]", booking: false },
+    { name: "contact call request", path: "/contact.html", selector: "#contactForm [data-book-call]", booking: true },
+  ]) {
+    test(`${action.name} enforces the U.S. shipping-origin question`, async ({ page, site }, testInfo) => {
+      await page.goto(site.origin + action.path);
+      await page.locator(action.selector).click();
+      const form = page.locator("#qualifyForm");
+      const yes = form.getByRole("radio", { name: "Yes", exact: true });
+      const no = form.getByRole("radio", { name: "No", exact: true });
+      const group = form.getByRole("group", {
+        name: "Will orders from the Shopify store we manage ship from within the United States?",
+      });
+      const details = form.locator("[data-qualify-details]");
+      const notice = form.getByRole("status");
+      const submit = form.locator('button[type="submit"]');
+      const nothingSent = () => {
+        expect(site.crmCalls).toHaveLength(0);
+        expect(site.directEmails).toHaveLength(0);
+        expect(site.nativeEmails).toHaveLength(0);
+        expect(site.conversions).toHaveLength(0);
+        expect(site.calendarVisits).toBe(0);
+      };
+
+      await expect(page.locator("#qualifyModal .modal__head .eligibility-note")).toHaveText(
+        "We currently partner only with businesses shipping orders from within the USA.",
+      );
+      await expect(group).toBeVisible();
+      await expect(group).toHaveAccessibleDescription(
+        "This refers to where orders are dispatched, including your own location or a fulfillment partner's warehouse.",
+      );
+      await expect(yes).not.toBeChecked();
+      await expect(no).not.toBeChecked();
+      await expect(details).toBeHidden();
+      await expect(submit).toBeHidden();
+      await expect(notice).toHaveText("");
+      await form.evaluate((element) => element.requestSubmit());
+      nothingSent();
+
+      await no.check();
+      await expect(notice).toHaveText(ineligibleMessage);
+      await expect(details).toBeHidden();
+      await expect(group).toBeVisible();
+      await page.screenshot({ path: testInfo.outputPath("shipping-no.png") });
+      await form.evaluate((element) => element.requestSubmit());
+      await no.press("Enter");
+      await page.waitForTimeout(300);
+      await expect(page).toHaveURL(site.origin + action.path);
+      nothingSent();
+
+      await yes.check();
+      await expect(details).toBeVisible();
+      await expect(notice).toHaveText("");
+      await expect(submit).toHaveText(action.booking ? "Submit & Choose a Call Time" : "Submit My Details");
+      await page.screenshot({ path: testInfo.outputPath("shipping-yes.png") });
+      await no.check();
+      await expect(details).toBeHidden();
+      await expect(notice).toHaveText(ineligibleMessage);
+      if (action.booking) {
+        await page.locator(".modal__close").click();
+        await page.locator(".nav__book").click();
+        await expect(no).toBeChecked();
+        await expect(details).toBeHidden();
+        await page.waitForTimeout(300);
+        await expect(page).toHaveURL(site.origin + action.path);
+      }
+      nothingSent();
+
+      const viewportWidth = page.viewportSize().width;
+      const optionsBox = await form.locator(".choice-options").boundingBox();
+      expect(optionsBox.x + optionsBox.width).toBeLessThanOrEqual(viewportWidth);
+
+      await fillForm(page);
+      await expect(notice).toHaveText("");
+      await submit.click();
+      if (action.booking) await expect(page).toHaveURL(calendarUrl);
+      else await expect(page.locator("#qualifySuccess.show")).toBeVisible();
+      expect(site.crmCalls).toHaveLength(1);
+      expect(site.directEmails).toHaveLength(1);
+      expect(site.directEmails[0].ships_from_us).toBe("Yes");
+      expect(site.calendarVisits).toBe(action.booking ? 1 : 0);
+    });
+  }
 });
